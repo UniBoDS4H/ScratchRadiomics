@@ -1,94 +1,85 @@
+/*
+ * Wound Healing Scratch Assay Plugin for Fiji/ImageJ
+ * Copyright (C) 2025 Your Name — GPLv3+
+ */
 package com.ds4h.scratchradiomics;
 
-import com.ds4h.scratchradiomics.features.IbsiFeatureExtractor;
-import com.ds4h.scratchradiomics.segmentation.SamEngine;
-import com.ds4h.scratchradiomics.segmentation.SamPostProcessor;
-import com.ds4h.scratchradiomics.segmentation.SegmentationGUI;
+import ij.IJ;
 import ij.ImagePlus;
-import ij.gui.Roi;
-
-import org.scijava.ItemVisibility;
-import org.scijava.app.StatusService;
+import ij.WindowManager;
 import org.scijava.command.Command;
+import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
-import org.scijava.ui.UIService;
+import com.ds4h.scratchradiomics.gui.MainDialog;
 
-import java.util.Map;
+import javax.swing.*;
 
-@Plugin(type = Command.class, menuPath = "Plugins > ScratchRadiomics")
+@Plugin(type = Command.class,
+        menuPath = "Plugins > ScratchRadiomics",
+        description = "Wound Healing Scratch Assay analysis with SAM segmentation " +
+                "and IBSI-compliant radiomic features.")
 public class ScratchRadiomicsPlugin implements Command {
 
     @Parameter
-    private UIService uiService;
-
-    @Parameter
-    private StatusService statusService;
-
-    @Parameter(label = "Input Image", required = true)
-    private ImagePlus currentImage;
-
-    @Parameter(label = "ROI Name")
-    private String roiName;
-
-    @Parameter(label = "Enable Manual Click Prompt")
-    private boolean enableClickPrompt;
-
-    @Parameter(visibility = ItemVisibility.MESSAGE, label = "--- IBSI Radiomics Options ---")
-    private final String radiomicsHeader = "";
-
-    @Parameter(label = "Extract IBSI Features")
-    private boolean extractFeatures;
-
-    @Parameter(label = "Export Report to Excel (.xlsx)")
-    private boolean exportExcel;
+    LogService log;
 
     @Override
     public void run() {
-        if (currentImage == null) {
-            uiService.showDialog("Open an image on Fiji");
-            return;
-        }
+        try {
+            ImagePlus imp = WindowManager.getCurrentImage();
+            if (imp == null && WindowManager.getImageCount() > 0) {
+                imp = WindowManager.getImage(WindowManager.getIDList()[0]);
+            }
 
-        final SegmentationGUI gui = new SegmentationGUI(currentImage, uiService, statusService);
+            if (imp == null) {
+                IJ.error("ScratchRadiomics",
+                        "No image open.");
+                return;
+            }
 
-        if (enableClickPrompt) {
-            gui.enableInteractivePrompt((x, y) -> processSegmentation(x, y, gui));
-        } else {
-            final int centerX = currentImage.getWidth() / 2;
-            final int centerY = currentImage.getHeight() / 2;
-            processSegmentation(centerX, centerY, gui);
+            int type = imp.getType();
+            if (type != ImagePlus.GRAY8 && type != ImagePlus.GRAY16 && type != ImagePlus.COLOR_RGB) {
+                ij.IJ.error("ScratchRadiomics",
+                        "Unsupported image type: " + imp.getTitle() + "\n" +
+                                "Supported: 8-bit gray, 16-bit gray, RGB color.");
+                return;
+            }
+            final ImagePlus finalImp = imp;
+            if (SwingUtilities.isEventDispatchThread()) {
+                new MainDialog(finalImp, log).setVisible(true);
+            } else {
+                SwingUtilities.invokeLater(
+                        () -> new MainDialog(finalImp, log).setVisible(true));
+            }
+        } catch (Exception e) {
+            IJ.log("[ScratchRadiomics] ERROR: " + e.getClass().getName() +
+                    " - " + e.getMessage());
+            IJ.handleException(e);
         }
     }
 
-    private void processSegmentation(int clickX, int clickY, SegmentationGUI gui) {
-        try (final SamEngine samEngine = new SamEngine()) {
-            gui.updateStatus("Loading SAM inference...");
+    /** IDE launcher — pure ImageJ1, no SciJava context needed. */
+    public static void main(String[] args) {
+        new ij.ImageJ();
+        final String imagePath = System.getProperty("user.home") + "/Desktop/test_assay_A549_Serum_0.tif";
+        final ImagePlus imp = IJ.openImage(imagePath);
 
-            final float[] dummyEmbeddings = new float[256 * 64 * 64];
-
-            final boolean[][] mask = samEngine.predictMask(
-                    dummyEmbeddings, clickX, clickY,
-                    currentImage.getWidth(), currentImage.getHeight()
-            );
-
-            final Roi roi = SamPostProcessor.convertMaskToRoiAndAddToManager(mask, currentImage, roiName);
-
-            if (roi != null) {
-                gui.updateStatus("Segmentation completed with success!");
-
-                if (extractFeatures) {
-                    gui.updateStatus("Calculating IBSI radiomic features...");
-                    final Map<String, Double> ibsiFeatures = IbsiFeatureExtractor.extractFeatures(currentImage, roi);
-                    gui.showResultsDialog(currentImage.getTitle(), roiName, ibsiFeatures);
-                    gui.updateStatus("Radiomic analysis completed with success!");
-                }
-            } else {
-                gui.showNotification("No identified region in the selected point");
-            }
-
-        } catch (Exception e) {
-            gui.showNotification("Error during the segmentation: " + e.getMessage());
+        if (imp == null) {
+            System.err.println("Error: image not found at path " + imagePath);
+            return;
         }
+
+        if (imp.getNFrames() == 1 && imp.getNSlices() > 1) {
+            final int totalSlices = imp.getNSlices();
+            imp.setDimensions(1, 1, totalSlices);
+            imp.setOpenAsHyperStack(true);
+        }
+
+        imp.show();
+
+        final ScratchRadiomicsPlugin plugin = new ScratchRadiomicsPlugin();
+        plugin.log = new org.scijava.log.StderrLogService();
+        plugin.run();
     }
 }
