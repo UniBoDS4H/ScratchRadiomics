@@ -1,5 +1,6 @@
 package com.ds4h.scratchradiomics.gui;
 
+import com.ds4h.scratchradiomics.output.ClosureCurvePlotter;
 import ij.ImagePlus;
 import ij.gui.Roi;
 import org.scijava.log.StderrLogService;
@@ -108,7 +109,7 @@ public class IbsiMeasureDialog extends JFrame {
         checks.setLayout(new BoxLayout(checks, BoxLayout.Y_AXIS));
         checks.setBorder(new EmptyBorder(6, 0, 0, 0));
 
-        boolean isStack = imp.getNFrames() > 1;
+        boolean isStack = imp.getStackSize() > 1 || imp.getNFrames() > 1;
 
         for (IbsiFeatureSet fs : IbsiFeatureSet.values()) {
             if (fs == IbsiFeatureSet.TEMPORAL && !isStack) continue;
@@ -224,6 +225,14 @@ public class IbsiMeasureDialog extends JFrame {
                     progress.setValue(100);
                     progress.setString("Done - " + lastResults.size() + " row(s)");
                     btnExport.setEnabled(true);
+
+                    if (selected.contains(IbsiFeatureSet.TEMPORAL)) {
+                        String plotTitle = (imp.getShortTitle() != null && !imp.getShortTitle().isEmpty())
+                                ? imp.getShortTitle()
+                                : imp.getTitle();
+
+                        ClosureCurvePlotter.plot(lastResults, plotTitle);
+                    }
 
                 } catch (Exception ex) {
                     Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;

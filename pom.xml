@@ -164,6 +164,14 @@
             <artifactId>junit</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>ai.nets</groupId>
+            <artifactId>samj-ij</artifactId>
+            <version>1.0.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/samj-0.0.3-SNAPSHOT.jar</systemPath>
+        </dependency>
     </dependencies>
 
     <build>

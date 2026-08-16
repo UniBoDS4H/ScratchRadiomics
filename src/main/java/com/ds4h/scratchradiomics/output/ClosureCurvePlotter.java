@@ -25,7 +25,7 @@ public class ClosureCurvePlotter {
             cr[i]     = nn(s.get(i).get("Ftemp.closure"));
             vel[i]    = nn(s.get(i).get("Ftemp.vel"));
         }
-        Plot plot = new Plot("Closure \u2014 " + title, "Frame", "Value");
+        Plot plot = new Plot("Closure Curve Plot - " + title, "Frame", "Value");
         plot.setLimits(frames[0], frames[n-1], -0.05, 1.1);
 
         plot.setColor(new Color(0x1565C0)); plot.setLineWidth(2);
@@ -50,7 +50,7 @@ public class ClosureCurvePlotter {
         if (hl > 0 && hl <= frames[n-1]) {
             plot.setColor(Color.RED); plot.setLineWidth(1);
             plot.drawLine(hl, 0, hl, 0.5);
-            plot.addLabel(hl / frames[n-1] + 0.01, 0.45, "t\u00bd");
+            plot.addLabel(hl / frames[n-1] + 0.01, 0.45, "t½");
         }
         plot.setColor(Color.BLACK);
         plot.show();

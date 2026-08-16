@@ -40,46 +40,65 @@ public class RadiomicExtractor {
     }
 
     private void initResults() {
-        int nFrames = imp.getNFrames();
-        for (int f = 1; f <= nFrames; f++) {
-            for (Roi roi : rois) {
-                int roiFrame = roi.getPosition();
-                if (roiFrame == 0 || roiFrame == f) {
-                    String label = (roi.getName() != null && !roi.getName().isEmpty())
-                            ? roi.getName() : "ROI_f" + f;
-                    results.add(new RadiomicResult(f, label));
-                }
+        int totalFrames = Math.max(imp.getNFrames(), imp.getStackSize());
+
+        for (int f = 1; f <= totalFrames; f++) {
+            Roi roi = findRoiForFrame(f);
+            if (roi != null) {
+                String label = (roi.getName() != null && !roi.getName().isEmpty())
+                        ? roi.getName() : "ROI_f" + f;
+                results.add(new RadiomicResult(f, label));
             }
         }
     }
 
-    /**
-     * Esegue tutte le famiglie di feature selezionate.
-     *
-     * @param featureSets gruppi scelti dall'utente in IbsiMeasureDialog
-     * @throws Exception se PyRadiomics non è disponibile o l'estrazione fallisce
-     */
+    private Roi findRoiForFrame(int frame) {
+        for (Roi roi : rois) {
+            int pos  = roi.getPosition();
+            int tPos = roi.getTPosition();
+            int zPos = roi.getZPosition();
+            if (pos == frame || tPos == frame || zPos == frame) {
+                return roi;
+            }
+        }
+
+        if (frame <= rois.length) {
+            return rois[frame - 1];
+        }
+
+        return null;
+    }
+
     public void compute(Set<IbsiFeatureSet> featureSets) throws Exception {
         ensurePythonReady();
 
+        int totalFrames = Math.max(imp.getNFrames(), imp.getStackSize());
+        boolean needShapeForTemporal = featureSets.contains(IbsiFeatureSet.TEMPORAL);
+
         PyRadiomicsWrapper wrapper = new PyRadiomicsWrapper(log);
+
         for (RadiomicResult res : results) {
-            Roi roi = getMatchingRoi(res);
+            Roi roi = findRoiForFrame(res.frameIndex);
             if (roi == null) {
-                log.warn("[RadiomicExtractor] Nessuna ROI trovata per frame " +
-                        res.frameIndex + " — skip.");
+                log.warn("[RadiomicExtractor] No ROI found for frame " +
+                        res.frameIndex + " - skip.");
                 continue;
             }
 
-            imp.setPosition(1, 1, res.frameIndex);
+            if (imp.isHyperStack()) {
+                imp.setPosition(1, 1, res.frameIndex);
+            } else {
+                imp.setSlice(res.frameIndex);
+            }
+
             ImagePlus sliceImp = new ImagePlus(
                     "slice_f" + res.frameIndex,
                     imp.getProcessor().duplicate());
             sliceImp.setCalibration(imp.getCalibration());
 
-            if (featureSets.contains(IbsiFeatureSet.SHAPE_2D)) {
+            if (featureSets.contains(IbsiFeatureSet.SHAPE_2D) || needShapeForTemporal) {
                 log.debug("[RadiomicExtractor] Shape 2D — frame " + res.frameIndex);
-                MorphologyFeatures.compute(imp, roi, res);
+                MorphologyFeatures.compute(sliceImp, roi, res);
             }
 
             Set<IbsiFeatureSet> pyRadSets = withoutShapeAndTemporal(featureSets);
@@ -89,7 +108,7 @@ public class RadiomicExtractor {
             }
         }
 
-        if (featureSets.contains(IbsiFeatureSet.TEMPORAL) && imp.getNFrames() > 1) {
+        if (featureSets.contains(IbsiFeatureSet.TEMPORAL) && totalFrames > 1) {
             log.debug("[RadiomicExtractor] Temporal features…");
             TemporalFeatures.compute(results, imp.getCalibration());
         }
@@ -111,18 +130,5 @@ public class RadiomicExtractor {
         out.remove(IbsiFeatureSet.SHAPE_2D);
         out.remove(IbsiFeatureSet.TEMPORAL);
         return out;
-    }
-
-    private Roi getMatchingRoi(RadiomicResult res) {
-        for (Roi roi : rois) {
-            int rp = roi.getPosition();
-            String name = roi.getName() != null ? roi.getName() : "";
-            if ((rp == 0 || rp == res.frameIndex) &&
-                    (res.roiLabel.equals(name) ||
-                            res.roiLabel.equals("ROI_f" + res.frameIndex)))
-                return roi;
-        }
-        for (Roi roi : rois) if (roi.getPosition() == 0) return roi;
-        return null;
     }
 }
