@@ -8,9 +8,7 @@ import java.awt.*;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * Dialog modale con progress bar mostrato durante il setup iniziale.
- * L'utente vede cosa sta succedendo ma non deve interagire.
- * Si chiude automaticamente al termine o in caso di errore.
+ * Modal dialog for creating the Python venv.
  */
 public class SetupDialog extends JDialog {
     private final PythonEnvironmentManager manager;
@@ -23,19 +21,19 @@ public class SetupDialog extends JDialog {
     private String             errorMessage = "";
 
     public SetupDialog(PythonEnvironmentManager manager, CountDownLatch latch) {
-        super((Frame) null, "ScratchRadiomics - Python Environment Setup", true);
+        super((Frame) null, "ScratchRadiomics - Python Virtual Environment Setup", true);
         this.manager = manager;
         this.latch   = latch;
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
 
-        JPanel root = new JPanel(new BorderLayout(8, 8));
+        final JPanel root = new JPanel(new BorderLayout(8, 8));
         root.setBorder(new EmptyBorder(16, 16, 16, 16));
 
-        JLabel title = new JLabel(
+        final JLabel title = new JLabel(
                 "<html><b>Initial setup - first launch only</b></html>");
         title.setFont(title.getFont().deriveFont(Font.PLAIN, 13f));
 
-        JLabel sub = new JLabel(
+        final JLabel sub = new JLabel(
                 "<html>The plugin is configuring an isolated Python environment " +
                         "with PyRadiomics.<br>" +
                         "This process takes approximately 2-5 minutes and " +
@@ -44,7 +42,7 @@ public class SetupDialog extends JDialog {
         sub.setFont(sub.getFont().deriveFont(Font.PLAIN, 12f));
         sub.setBorder(new EmptyBorder(4, 0, 12, 0));
 
-        JPanel header = new JPanel(new BorderLayout());
+        final JPanel header = new JPanel(new BorderLayout());
         header.add(title, BorderLayout.NORTH);
         header.add(sub,   BorderLayout.CENTER);
 
@@ -54,7 +52,7 @@ public class SetupDialog extends JDialog {
         bar.setStringPainted(true);
         bar.setPreferredSize(new Dimension(460, 22));
 
-        JPanel progress = new JPanel(new BorderLayout(4, 4));
+        final JPanel progress = new JPanel(new BorderLayout(4, 4));
         progress.add(lblStep, BorderLayout.NORTH);
         progress.add(bar,     BorderLayout.CENTER);
 
@@ -62,7 +60,7 @@ public class SetupDialog extends JDialog {
         logArea.setEditable(false);
         logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 10));
         logArea.setLineWrap(true);
-        JScrollPane scroll = new JScrollPane(logArea);
+        final JScrollPane scroll = new JScrollPane(logArea);
         scroll.setBorder(BorderFactory.createTitledBorder("Details"));
 
         root.add(header,   BorderLayout.NORTH);
@@ -78,6 +76,9 @@ public class SetupDialog extends JDialog {
         startSetup();
     }
 
+    /**
+     * Start the setup of the Python venv.
+     */
     public void startSetup() {
         new SwingWorker<String, String[]>() {
             @Override
@@ -97,9 +98,9 @@ public class SetupDialog extends JDialog {
 
             @Override
             protected void process(java.util.List<String[]> chunks) {
-                for (String[] chunk : chunks) {
-                    String msg = chunk[0];
-                    int pct    = Integer.parseInt(chunk[1]);
+                for (final String[] chunk : chunks) {
+                    final String msg = chunk[0];
+                    final int pct    = Integer.parseInt(chunk[1]);
 
                     logArea.append(msg + "\n");
                     logArea.setCaretPosition(logArea.getDocument().getLength());
@@ -119,7 +120,7 @@ public class SetupDialog extends JDialog {
             @Override
             protected void done() {
                 try {
-                    String result = get();
+                    final String result = get();
                     if (result != null && !result.isBlank()) {
                         manager.setPythonPathResult(result);
                     }
@@ -131,13 +132,13 @@ public class SetupDialog extends JDialog {
                     bar.setValue(100);
                     bar.setString("100%");
                     lblStep.setText("Python environment ready!");
-                    Timer t = new Timer(1500, e -> dispose());
+                    final Timer t = new Timer(1500, e -> dispose());
                     t.setRepeats(false);
                     t.start();
                 } else {
-                    JButton btnClose = new JButton("Close");
+                    final JButton btnClose = new JButton("Close");
                     btnClose.addActionListener(e -> dispose());
-                    JPanel south = new JPanel();
+                    final JPanel south = new JPanel();
                     south.add(btnClose);
                     getContentPane().add(south, BorderLayout.SOUTH);
                     pack();

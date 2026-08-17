@@ -1,9 +1,12 @@
 package com.ds4h.scratchradiomics.radiomics;
 import com.ds4h.scratchradiomics.gui.SetupDialog;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.scijava.log.LogService;
 
 import javax.swing.*;
 import java.io.*;
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -11,26 +14,27 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.zip.GZIPInputStream;
 
 /**
- * Gestisce l'ambiente Python isolato (venv) necessario per PyRadiomics.
+ * Manages the isolated Python environment (venv) required by PyRadiomics.
  *
- * Al primo avvio del plugin:
- *   1. Controlla se Python 3 è già installato sul sistema.
- *   2. Se non trovato, scarica e installa Miniconda silenziosamente.
- *   3. Crea un venv isolato in <plugins>/wound_healing_env/.venv
- *   4. Installa PyRadiomics nel venv con pip.
- *   5. Salva il path del Python del venv in un file .lock per i run successivi.
+ * On the first plugin startup:<br>
+ *   1. Checks whether Python 3 is already installed on the system.<br>
+ *   2. If not found, silently downloads and installs Miniconda.<br>
+ *   3. Creates an isolated venv in <plugins>/wound_healing_env/.venv<br>
+ *   4. Installs PyRadiomics in the venv using pip.<br>
+ *   5. Saves the venv Python path to a .lock file for subsequent runs.<br>
  *
- * Ai run successivi:
- *   - Legge il path dal file .lock e verifica che il venv sia ancora valido.
- *   - Se valido, salta tutta la procedura di setup (< 100ms).
+ * On subsequent runs:<br>
+ *   - Reads the path from the .lock file and verifies that the venv is still valid.<br>
+ *   - If valid, skips the entire setup procedure (< 100 ms).<br>
  *
- * L'intero processo è mostrato in un dialog con progress bar.
- * L'utente non deve fare nulla — nessun prompt, nessuna scelta.
+ * The entire process is displayed in a dialog with a progress bar.<br>
+ * No user interaction is required: no prompts, no choices.<br>
  *
- * Il venv è completamente isolato: non tocca Python di sistema, non richiede
- * privilegi di amministratore, non interferisce con altri tool.
+ * The venv is completely isolated: it does not modify the system Python,
+ * does not require administrator privileges, and does not interfere with other tools.
  */
 public class PythonEnvironmentManager {
     private static final String ENV_DIR_NAME  = "scratch_radiomics_env";
@@ -69,7 +73,6 @@ public class PythonEnvironmentManager {
     private final Path       condaDir;
     private final Path       appInfoFile;
 
-    /** Set by SetupDialog.done() directly from the SwingWorker result. */
     private volatile String  pythonPathResult = null;
 
     public PythonEnvironmentManager(LogService log) {
@@ -79,17 +82,23 @@ public class PythonEnvironmentManager {
         this.appInfoFile = envDir.resolve(APP_INFO_FILE);
     }
 
+    /**
+     * Check if the setup environment is ready to start.
+     *
+     * @return The path of the appInfo.json file
+     * @throws Exception
+     */
     public String ensureReady() throws Exception {
-        String cached = readAppInfo();
+        final String cached = readAppInfo();
         if (cached != null && isEnvValid(cached)) {
             log.info("[PythonEnvMgr] Env already ready: " + cached);
             return cached;
         }
         log.info("[PythonEnvMgr] Env not found — starting setup.");
 
-        CountDownLatch latch = new CountDownLatch(1);
+        final CountDownLatch latch = new CountDownLatch(1);
 
-        SetupDialog dialog = new SetupDialog(this, latch);
+        final SetupDialog dialog = new SetupDialog(this, latch);
 
         if (SwingUtilities.isEventDispatchThread()) {
             dialog.setVisible(true);
@@ -97,7 +106,7 @@ public class PythonEnvironmentManager {
             SwingUtilities.invokeAndWait(() -> dialog.setVisible(true));
         }
 
-        boolean completed = latch.await(10, java.util.concurrent.TimeUnit.MINUTES);
+        final boolean completed = latch.await(10, java.util.concurrent.TimeUnit.MINUTES);
 
         if (!completed) {
             throw new Exception("Python environment setup timed out after 10 minutes.");
@@ -107,7 +116,7 @@ public class PythonEnvironmentManager {
             throw new Exception(
                     "Unable to configure the Python environment:\n" + dialog.getError());
 
-        String pythonPath = readAppInfoDirect();
+        final String pythonPath = readAppInfoDirect();
         if (pythonPath == null)
             throw new Exception(
                     "Setup completed but appInfo.json was not written.\n" +
@@ -115,6 +124,12 @@ public class PythonEnvironmentManager {
         return pythonPath;
     }
 
+    /**
+     * Run the setup to create the venv.
+     *
+     * @param cb The callback to inform the user of the progress.
+     * @throws Exception
+     */
     public void runSetup(ProgressCallback cb) throws Exception {
         Files.createDirectories(envDir);
 
@@ -131,9 +146,9 @@ public class PythonEnvironmentManager {
         installPyRadiomics(cb);
 
         cb.step("Patching PyRadiomics for pure-Python mode…", 92);
-        boolean isWin2 = System.getProperty("os.name").toLowerCase().contains("win");
-        Path envPath2  = condaDir.resolve("envs").resolve(CONDA_ENV);
-        Path installedInit = (isWin2
+        final boolean isWin2 = System.getProperty("os.name").toLowerCase().contains("win");
+        final Path envPath2  = condaDir.resolve("envs").resolve(CONDA_ENV);
+        final Path installedInit = (isWin2
                 ? envPath2.resolve("Lib/site-packages/radiomics/__init__.py")
                 : envPath2.resolve("lib/python3.10/site-packages/radiomics/__init__.py"));
         if (Files.exists(installedInit)) {
@@ -144,7 +159,7 @@ public class PythonEnvironmentManager {
         }
 
         cb.step("Verifying PyRadiomics…", 94);
-        String pythonPath = getEnvPython();
+        final String pythonPath = getEnvPython();
         log.info("[PythonEnvMgr] venv python path: " + pythonPath);
         log.info("[PythonEnvMgr] venv python exists: " + Files.exists(Path.of(pythonPath)));
         verifyPyRadiomics(pythonPath);
@@ -177,15 +192,15 @@ public class PythonEnvironmentManager {
             return;
         }
 
-        String os   = System.getProperty("os.name").toLowerCase();
-        String arch = System.getProperty("os.arch").toLowerCase();
-        boolean isWindows = os.contains("win");
-        boolean isMac     = os.contains("mac");
+        final String os   = System.getProperty("os.name").toLowerCase();
+        final String arch = System.getProperty("os.arch").toLowerCase();
+        final boolean isWindows = os.contains("win");
+        final boolean isMac     = os.contains("mac");
 
-        String url           = resolveMinforgeUrl(isWindows, isMac, arch);
-        String installerName = isWindows ? "miniforge_installer.exe"
+        final String url           = resolveMinforgeUrl(isWindows, isMac, arch);
+        final String installerName = isWindows ? "miniforge_installer.exe"
                 : "miniforge_installer.sh";
-        Path installer = envDir.resolve(installerName);
+        final Path installer = envDir.resolve(installerName);
 
         cb.step("Downloading Miniforge3 (~90 MB)…", 6);
         downloadWithProgress(url, installer, cb, 6, 38);
@@ -221,8 +236,8 @@ public class PythonEnvironmentManager {
     }
 
     private void createCondaEnv(ProgressCallback cb) throws Exception {
-        String conda   = getCondaExe();
-        Path   envPath = condaDir.resolve("envs").resolve(CONDA_ENV);
+        final String conda   = getCondaExe();
+        final Path   envPath = condaDir.resolve("envs").resolve(CONDA_ENV);
 
         if (Files.exists(envPath)) {
             log.info("[PythonEnvMgr] Conda env already exists: " + envPath);
@@ -240,10 +255,10 @@ public class PythonEnvironmentManager {
     }
 
     private void installCondaPackages(ProgressCallback cb) throws Exception {
-        String conda   = getCondaExe();
-        Path   envPath = condaDir.resolve("envs").resolve(CONDA_ENV);
+        final String conda   = getCondaExe();
+        final Path   envPath = condaDir.resolve("envs").resolve(CONDA_ENV);
 
-        List<String> cmd = new ArrayList<>(List.of(
+        final List<String> cmd = new ArrayList<>(List.of(
                 conda, "install", "-y",
                 "-p", envPath.toString(),
                 "-c", "conda-forge",
@@ -257,46 +272,46 @@ public class PythonEnvironmentManager {
     }
 
     private void installPyRadiomics(ProgressCallback cb) throws Exception {
-        Path envPath  = condaDir.resolve("envs").resolve(CONDA_ENV);
-        boolean isWin = System.getProperty("os.name").toLowerCase().contains("win");
+        final Path envPath  = condaDir.resolve("envs").resolve(CONDA_ENV);
+        final boolean isWin = System.getProperty("os.name").toLowerCase().contains("win");
 
-        String python = (isWin
+        final String python = (isWin
                 ? envPath.resolve("python.exe")
                 : envPath.resolve("bin/python3")).toString();
 
         cb.step("Downloading PyRadiomics source…", 81);
-        Path tarPath = envDir.resolve("pyradiomics-3.0.1.tar.gz");
-        Path srcDir  = envDir.resolve("pyradiomics-3.0.1-src");
+        final Path tarPath = envDir.resolve("pyradiomics-3.0.1.tar.gz");
+        final Path srcDir  = envDir.resolve("pyradiomics-3.0.1-src");
 
         if (Files.exists(srcDir)) {
             log.info("[PythonEnvMgr] Removing existing source dir for clean re-extract");
             deleteDir(srcDir);
         }
 
-        String tarUrl = "https://files.pythonhosted.org/packages/source/p/pyradiomics/pyradiomics-3.0.1.tar.gz";
+        final String tarUrl = "https://files.pythonhosted.org/packages/source/p/pyradiomics/pyradiomics-3.0.1.tar.gz";
         downloadWithProgress(tarUrl, tarPath, cb, 81, 85);
 
         cb.step("Extracting PyRadiomics…", 86);
         extractTarGz(tarPath, srcDir);
 
-        Path extractedRoot = Files.list(srcDir).findFirst()
+        final Path extractedRoot = Files.list(srcDir).findFirst()
                 .orElseThrow(() -> new IOException("Extraction failed: empty tar source"));
 
         cb.step("Installing PyRadiomics (pure python mode)…", 88);
 
-        Path buildDir = extractedRoot.resolve("build");
+        final Path buildDir = extractedRoot.resolve("build");
         if (Files.exists(buildDir)) {
             deleteDir(buildDir);
             log.info("[PythonEnvMgr] Deleted residual build directory");
         }
 
-        Path setupCfg = extractedRoot.resolve("setup.cfg");
+        final Path setupCfg = extractedRoot.resolve("setup.cfg");
         if (Files.exists(setupCfg)) {
-            String[] lines = Files.readString(setupCfg).split("\n");
-            StringBuilder cfgOut = new StringBuilder();
+            final String[] lines = Files.readString(setupCfg).split("\n");
+            final StringBuilder cfgOut = new StringBuilder();
             boolean inBuildExt = false;
-            for (String line : lines) {
-                String trimmed = line.trim();
+            for (final String line : lines) {
+                final String trimmed = line.trim();
                 if (trimmed.equals("[build_ext]")) {
                     inBuildExt = true;
                     continue;
@@ -312,9 +327,9 @@ public class PythonEnvironmentManager {
             log.info("[PythonEnvMgr] setup.cfg patched to remove [build_ext] section");
         }
 
-        Path setupPy = extractedRoot.resolve("setup.py");
+        final Path setupPy = extractedRoot.resolve("setup.py");
         if (Files.exists(setupPy)) {
-            String minimalSetup =
+            final String minimalSetup =
                     "import versioneer\n" +
                             "from setuptools import setup, find_packages\n" +
                             "\n" +
@@ -336,18 +351,18 @@ public class PythonEnvironmentManager {
             log.info("[PythonEnvMgr] setup.py replaced with minimal pure-Python version");
         }
 
-        for (String cFile : new String[]{"radiomics/_cmatrices.c", "radiomics/_cmatrices.h"}) {
-            Path p = extractedRoot.resolve(cFile);
+        for (final String cFile : new String[]{"radiomics/_cmatrices.c", "radiomics/_cmatrices.h"}) {
+            final Path p = extractedRoot.resolve(cFile);
             if (Files.exists(p)) { Files.delete(p); log.info("[PythonEnvMgr] Deleted: " + cFile); }
         }
 
-        Path initPy = extractedRoot.resolve("radiomics/__init__.py");
+        final Path initPy = extractedRoot.resolve("radiomics/__init__.py");
         if (Files.exists(initPy)) {
             patchRadiomicsInit(initPy);
             log.info("[PythonEnvMgr] radiomics/__init__.py patched in source");
         }
 
-        ProcessBuilder pb = new ProcessBuilder(
+        final ProcessBuilder pb = new ProcessBuilder(
                 python, "setup.py",
                 "install",
                 "--single-version-externally-managed",
@@ -358,33 +373,33 @@ public class PythonEnvironmentManager {
         pb.environment().put("PYTHONDONTWRITEBYTECODE", "1");
         pb.redirectErrorStream(false);
 
-        Process proc = pb.start();
-        StringBuilder stdout = new StringBuilder();
-        StringBuilder stderr = new StringBuilder();
-        Thread tOut = new Thread(() -> {
+        final Process proc = pb.start();
+        final StringBuilder stdout = new StringBuilder();
+        final StringBuilder stderr = new StringBuilder();
+        final Thread tOut = new Thread(() -> {
             try { stdout.append(new String(proc.getInputStream().readAllBytes())); }
             catch (IOException ignored) {}
         });
-        Thread tErr = new Thread(() -> {
+        final Thread tErr = new Thread(() -> {
             try { stderr.append(new String(proc.getErrorStream().readAllBytes())); }
             catch (IOException ignored) {}
         });
         tOut.start(); tErr.start();
-        int exit = proc.waitFor();
+        final int exit = proc.waitFor();
         tOut.join(); tErr.join();
 
-        String combined = stdout.toString() + stderr.toString();
+        final String combined = stdout + stderr.toString();
         log.info("[PythonEnvMgr] setup.py output:\n" + combined.trim());
 
         if (exit != 0)
             throw new IOException("python setup.py install failed (exit " + exit + "):\n" +
                     combined.lines().limit(30).reduce("", (a, b) -> a + "\n" + b));
 
-        Path installedSitePackages = isWin
+        final Path installedSitePackages = isWin
                 ? envPath.resolve("Lib/site-packages/radiomics")
                 : envPath.resolve("lib/python3.10/site-packages/radiomics");
 
-        Path installedInit = installedSitePackages.resolve("__init__.py");
+        final Path installedInit = installedSitePackages.resolve("__init__.py");
         if (Files.exists(installedInit)) {
             patchRadiomicsInit(installedInit);
             log.info("[PythonEnvMgr] Applied post-install patch to site-packages: " + installedInit);
@@ -401,15 +416,15 @@ public class PythonEnvironmentManager {
     }
 
     private String getCondaExe() {
-        boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+        final boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
         return (isWindows
                 ? condaDir.resolve("Scripts/conda.exe")
                 : condaDir.resolve("bin/conda")).toString();
     }
 
     private String getEnvPython() {
-        boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
-        Path envPath = condaDir.resolve("envs").resolve(CONDA_ENV);
+        final boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+        final Path envPath = condaDir.resolve("envs").resolve(CONDA_ENV);
         return (isWindows
                 ? envPath.resolve("python.exe")
                 : envPath.resolve("bin/python3")).toString();
@@ -418,20 +433,20 @@ public class PythonEnvironmentManager {
     private boolean isEnvValid(String pythonPath) {
         if (!Files.exists(Path.of(pythonPath))) return false;
         try {
-            Process p = new ProcessBuilder(pythonPath, "-c",
+            final Process p = new ProcessBuilder(pythonPath, "-c",
                     "import radiomics; print('ok')")
                     .redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes()).trim();
+            final String out = new String(p.getInputStream().readAllBytes()).trim();
             p.waitFor();
             return out.equals("ok") && p.exitValue() == 0;
         } catch (Exception e) { return false; }
     }
 
     private void verifyPyRadiomics(String pythonPath) throws Exception {
-        Process p = new ProcessBuilder(pythonPath, "-c",
+        final Process p = new ProcessBuilder(pythonPath, "-c",
                 "import radiomics; print(radiomics.__version__)")
                 .redirectErrorStream(true).start();
-        String version = new String(p.getInputStream().readAllBytes()).trim();
+        final String version = new String(p.getInputStream().readAllBytes()).trim();
         p.waitFor();
         if (p.exitValue() != 0 || version.isEmpty())
             throw new Exception("PyRadiomics verification failed.\nOutput: " + version);
@@ -456,7 +471,7 @@ public class PythonEnvironmentManager {
     }
 
     private void writeAppInfo(String pythonPath) throws IOException {
-        String json = "{\n" +
+        final String json = "{\n" +
                 "  \"appName\": \"ScratchRadiomics\",\n" +
                 "  \"pythonInstalled\": \"yes\",\n" +
                 "  \"pythonPath\": \"" + pythonPath.replace("\\", "\\\\") + "\"\n" +
@@ -472,7 +487,7 @@ public class PythonEnvironmentManager {
                 log.info("[PythonEnvMgr] appInfo.json not found at: " + appInfoFile);
                 return null;
             }
-            String json = Files.readString(appInfoFile, java.nio.charset.StandardCharsets.UTF_8).trim();
+            final String json = Files.readString(appInfoFile, java.nio.charset.StandardCharsets.UTF_8).trim();
             log.info("[PythonEnvMgr] readAppInfo content: [" + json + "]");
 
             if (!json.contains("\"pythonInstalled\"") || !json.contains("\"yes\"")) {
@@ -480,20 +495,20 @@ public class PythonEnvironmentManager {
                 return null;
             }
 
-            int keyIdx = json.indexOf("\"pythonPath\"");
+            final int keyIdx = json.indexOf("\"pythonPath\"");
             if (keyIdx < 0) {
                 log.warn("[PythonEnvMgr] pythonPath key missing");
                 return null;
             }
-            int colon = json.indexOf(':', keyIdx);
+            final int colon = json.indexOf(':', keyIdx);
             if (colon < 0) return null;
-            int valStart = json.indexOf('"', colon) + 1;
-            int valEnd   = json.indexOf('"', valStart);
+            final int valStart = json.indexOf('"', colon) + 1;
+            final int valEnd   = json.indexOf('"', valStart);
             if (valStart <= 0 || valEnd <= valStart) {
                 log.warn("[PythonEnvMgr] could not extract pythonPath value");
                 return null;
             }
-            String path = json.substring(valStart, valEnd).replace("\\\\", "\\");
+            final String path = json.substring(valStart, valEnd).replace("\\\\", "\\");
             log.info("[PythonEnvMgr] readAppInfo path extracted: [" + path + "]");
             return path.isBlank() ? null : path;
         } catch (Exception e) {
@@ -504,25 +519,25 @@ public class PythonEnvironmentManager {
 
     private void runCommand(List<String> cmd, String label) throws Exception {
         log.debug("[PythonEnvMgr] " + label + ": " + String.join(" ", cmd));
-        ProcessBuilder pb = new ProcessBuilder(cmd);
+        final ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(false);
-        Process p = pb.start();
+        final Process p = pb.start();
 
-        StringBuilder stdout = new StringBuilder();
-        StringBuilder stderr = new StringBuilder();
-        Thread tOut = new Thread(() -> {
+        final StringBuilder stdout = new StringBuilder();
+        final StringBuilder stderr = new StringBuilder();
+        final Thread tOut = new Thread(() -> {
             try { stdout.append(new String(p.getInputStream().readAllBytes())); }
             catch (IOException ignored) {}
         });
-        Thread tErr = new Thread(() -> {
+        final Thread tErr = new Thread(() -> {
             try { stderr.append(new String(p.getErrorStream().readAllBytes())); }
             catch (IOException ignored) {}
         });
         tOut.start(); tErr.start();
-        int exit = p.waitFor();
+        final int exit = p.waitFor();
         tOut.join(); tErr.join();
 
-        String combined = stdout.toString() + stderr.toString();
+        final String combined = stdout + stderr.toString();
         if (!combined.isBlank())
             log.debug("[PythonEnvMgr] output: " + combined.trim());
 
@@ -533,21 +548,20 @@ public class PythonEnvironmentManager {
 
     private void extractTarGz(Path tarGzFile, Path destDir) throws IOException {
         Files.createDirectories(destDir);
-        try (InputStream fi = Files.newInputStream(tarGzFile);
-             BufferedInputStream bi = new BufferedInputStream(fi);
-             java.util.zip.GZIPInputStream gzi = new java.util.zip.GZIPInputStream(bi);
-             org.apache.commons.compress.archivers.tar.TarArchiveInputStream ti =
-                     new org.apache.commons.compress.archivers.tar.TarArchiveInputStream(gzi)) {
+        try (final InputStream fi = Files.newInputStream(tarGzFile);
+             final BufferedInputStream bi = new BufferedInputStream(fi);
+             final GZIPInputStream gzi = new java.util.zip.GZIPInputStream(bi);
+             final TarArchiveInputStream ti = new TarArchiveInputStream(gzi)) {
 
-            org.apache.commons.compress.archivers.tar.TarArchiveEntry entry;
+            TarArchiveEntry entry;
             while ((entry = ti.getNextTarEntry()) != null) {
-                Path entryPath = destDir.resolve(entry.getName());
+                final Path entryPath = destDir.resolve(entry.getName());
                 if (entry.isDirectory()) {
                     Files.createDirectories(entryPath);
                 } else {
                     Files.createDirectories(entryPath.getParent());
-                    try (OutputStream os = Files.newOutputStream(entryPath);
-                         BufferedOutputStream bos = new BufferedOutputStream(os)) {
+                    try (final OutputStream os = Files.newOutputStream(entryPath);
+                         final BufferedOutputStream bos = new BufferedOutputStream(os)) {
                         ti.transferTo(bos);
                     }
                 }
@@ -559,13 +573,8 @@ public class PythonEnvironmentManager {
 
     private void extractTarGzSystem(Path tarGzFile, Path destDir) throws IOException {
         Files.createDirectories(destDir);
-        boolean isWin = System.getProperty("os.name").toLowerCase().contains("win");
-        List<String> cmd;
-        if (isWin) {
-            cmd = List.of("tar", "-xzf", tarGzFile.toAbsolutePath().toString(), "-C", destDir.toAbsolutePath().toString());
-        } else {
-            cmd = List.of("tar", "-xzf", tarGzFile.toAbsolutePath().toString(), "-C", destDir.toAbsolutePath().toString());
-        }
+        final List<String> cmd =
+                List.of("tar", "-xzf", tarGzFile.toAbsolutePath().toString(), "-C", destDir.toAbsolutePath().toString());
         try {
             runCommand(cmd, "tar extract");
         } catch (Exception ex) {
@@ -576,28 +585,28 @@ public class PythonEnvironmentManager {
     private void downloadWithProgress(String urlStr, Path dest,
                                       ProgressCallback cb,
                                       int from, int to) throws IOException {
-        URL url = new URL(urlStr);
-        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+        final URL url = new URL(urlStr);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(true);
 
-        int status = conn.getResponseCode();
+        final int status = conn.getResponseCode();
         if (status == java.net.HttpURLConnection.HTTP_MOVED_TEMP
                 || status == java.net.HttpURLConnection.HTTP_MOVED_PERM
                 || status == java.net.HttpURLConnection.HTTP_SEE_OTHER) {
-            String newUrl = conn.getHeaderField("Location");
-            conn = (java.net.HttpURLConnection) new URL(newUrl).openConnection();
+            final String newUrl = conn.getHeaderField("Location");
+            conn = (HttpURLConnection) new URL(newUrl).openConnection();
         }
 
-        try (InputStream in  = conn.getInputStream();
-             OutputStream out = Files.newOutputStream(dest)) {
-            byte[] buf = new byte[8192];
-            long total = conn.getContentLengthLong();
+        try (final InputStream in  = conn.getInputStream();
+             final OutputStream out = Files.newOutputStream(dest)) {
+            final byte[] buf = new byte[8192];
+            final long total = conn.getContentLengthLong();
             long downloaded = 0; int n;
             while ((n = in.read(buf)) != -1) {
                 out.write(buf, 0, n);
                 downloaded += n;
                 if (total > 0) {
-                    int pct = from + (int)((downloaded * (to - from)) / total);
+                    final int pct = from + (int)((downloaded * (to - from)) / total);
                     cb.step("Downloading… " + (downloaded / 1_048_576) +
                             " / " + (total / 1_048_576) + " MB", pct);
                 }
@@ -605,20 +614,13 @@ public class PythonEnvironmentManager {
         }
     }
 
-    /**
-     * Patches radiomics/__init__.py to remove the _cmatrices C extension import.
-     * pyradiomics 3.0.1 uses C extensions for performance but falls back to
-     * pure Python if they are not available — however the import is not wrapped
-     * in a try/except in __init__.py, so it crashes without the .pyd file.
-     * We comment out the import block to force the pure-Python fallback.
-     */
     private void patchRadiomicsInit(Path initPy) throws IOException {
         if (!Files.exists(initPy)) return;
 
-        String content = Files.readString(initPy, StandardCharsets.UTF_8);
+        final String content = Files.readString(initPy, StandardCharsets.UTF_8);
 
         if (content.contains("# [ScratchRadiomics] Bypassed C extensions")) {
-            log.info("[PythonEnvMgr] File già patchato: " + initPy);
+            log.info("[PythonEnvMgr] File already patched: " + initPy);
             return;
         }
 
@@ -640,7 +642,7 @@ public class PythonEnvironmentManager {
         Files.writeString(initPy, patched, StandardCharsets.UTF_8);
         log.info("[PythonEnvMgr] Patch universale C-extensions applicata a: " + initPy);
 
-        Path pycacheDir = initPy.getParent().resolve("__pycache__");
+        final Path pycacheDir = initPy.getParent().resolve("__pycache__");
         if (Files.exists(pycacheDir)) {
             deleteDir(pycacheDir);
             log.info("[PythonEnvMgr] Svuotata cache __pycache__ in: " + pycacheDir);
@@ -648,12 +650,12 @@ public class PythonEnvironmentManager {
     }
 
     private Path resolveEnvDir() {
-        String userHome = System.getProperty("user.home");
-        String os       = System.getProperty("os.name").toLowerCase();
+        final String userHome = System.getProperty("user.home");
+        final String os       = System.getProperty("os.name").toLowerCase();
 
-        Path dir;
+        final Path dir;
         if (os.contains("win")) {
-            String appData = System.getenv("APPDATA");
+            final String appData = System.getenv("APPDATA");
             if (appData != null && !appData.isBlank()) {
                 dir = Path.of(appData, "ScratchRadiomics", ENV_DIR_NAME);
             } else {

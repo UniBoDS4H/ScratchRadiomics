@@ -1,6 +1,5 @@
 package com.ds4h.scratchradiomics.radiomics;
 
-import ij.IJ;
 import ij.ImagePlus;
 import ij.gui.Roi;
 import ij.io.FileSaver;
@@ -12,22 +11,18 @@ import org.scijava.log.LogService;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Wrapper che delega l'estrazione radiomica a PyRadiomics via processo esterno.
- *
- * Flusso:
- *   1. Verifica che Python sia disponibile sul PATH e che PyRadiomics sia installato.
- *   2. Scrive immagine e maschera come TIFF temporanei.
- *   3. Lancia: python pyradiomics_runner.py image.tif mask.tif params.yaml
- *   4. Legge stdout come JSON e popola RadiomicResult.
- *   5. Pulisce i file temporanei.
- *
- * Se Python o PyRadiomics non sono disponibili, lancia PyRadiomicsUnavailableException
- * che RadiomicExtractor intercetta per attivare il fallback Java.
- *
- * Installazione PyRadiomics:
- *   pip install pyradiomics
+ * Wrapper that delegates radiomics extraction to PyRadiomics via an external process.
+ * Workflow:
+ *   1. Checks that Python is available on the PATH and that PyRadiomics is installed.
+ *   2. Writes the image and mask as temporary TIFF files.
+ *   3. Launches: python pyradiomics_runner.py image.tif mask.tif params.yaml
+ *   4. Reads stdout as JSON and populates RadiomicResult.
+ *   5. Cleans up the temporary files.
  */
 public class PyRadiomicsWrapper {
     public static class PyRadiomicsUnavailableException extends Exception {
@@ -43,44 +38,13 @@ public class PyRadiomicsWrapper {
     }
 
     /**
-     * Verifica che il Python fornito abbia PyRadiomics disponibile.
-     * Il path viene ora fornito da PythonEnvironmentManager che ha già
-     * configurato il venv — questo metodo è solo una sanity check finale.
+     * Runs PyRadiomics on a single (image, mask) pair and populate the RadiomicResult with all returned features.
      *
-     * @param pythonPath path assoluto al Python del venv
-     * @throws PyRadiomicsUnavailableException se PyRadiomics non risponde
-     */
-    public void checkAvailability(String pythonPath)
-            throws PyRadiomicsUnavailableException {
-        try {
-            Process p = new ProcessBuilder(
-                    pythonPath, "-c",
-                    "import radiomics; print(radiomics.__version__)")
-                    .redirectErrorStream(true).start();
-            String version = new String(p.getInputStream().readAllBytes()).trim();
-            p.waitFor();
-            if (p.exitValue() != 0 || version.isEmpty()) {
-                throw new PyRadiomicsUnavailableException(
-                        "PyRadiomics non risponde nel venv: " + pythonPath);
-            }
-            log.info("[PyRadiomicsWrapper] PyRadiomics " + version + " pronto.");
-        } catch (PyRadiomicsUnavailableException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new PyRadiomicsUnavailableException(
-                    "Errore verifica PyRadiomics: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Esegue PyRadiomics su una singola (immagine, maschera) e popola il
-     * RadiomicResult con tutte le feature restituite.
-     *
-     * @param pythonCmd  comando Python verificato da checkAvailability()
-     * @param sliceImp   ImagePlus della slice corrente (singolo frame)
-     * @param roi        ROI che definisce la zona scratch
-     * @param featureSets gruppi di feature selezionati dall'utente
-     * @param result     RadiomicResult da popolare
+     * @param pythonCmd   Python command
+     * @param sliceImp    ImagePlus of the current slice (single frame)
+     * @param roi         ROI defining the scratch area
+     * @param featureSets Feature groups selected by the user
+     * @param result      RadiomicResult to populate
      */
     public void extract(String pythonCmd,
                         ImagePlus sliceImp,
@@ -89,11 +53,11 @@ public class PyRadiomicsWrapper {
                         RadiomicResult result)
             throws PyRadiomicsUnavailableException, IOException, InterruptedException {
 
-        Path tmpDir = Files.createTempDirectory("wound_healing_");
+        final Path tmpDir = Files.createTempDirectory("scratchradiomics_");
         try {
-            Path imgPath  = tmpDir.resolve("image.tif");
-            Path maskPath = tmpDir.resolve("mask.tif");
-            Path parPath  = tmpDir.resolve("params.yaml");
+            final Path imgPath  = tmpDir.resolve("image.tif");
+            final Path maskPath = tmpDir.resolve("mask.tif");
+            final Path parPath  = tmpDir.resolve("params.yaml");
 
             saveSlice(sliceImp, imgPath);
             saveMask(sliceImp.getWidth(), sliceImp.getHeight(), roi, maskPath);
@@ -101,10 +65,7 @@ public class PyRadiomicsWrapper {
 
             ensureRunnerScript(tmpDir);
 
-            log.info("[PyRadiomicsWrapper] Lancio: " + pythonCmd + " " +
-                    runnerPath + " " + imgPath + " " + maskPath + " " + parPath);
-
-            ProcessBuilder pb = new ProcessBuilder(
+            final ProcessBuilder pb = new ProcessBuilder(
                     pythonCmd,
                     runnerPath.toString(),
                     imgPath.toString(),
@@ -114,15 +75,15 @@ public class PyRadiomicsWrapper {
             pb.environment().put("PYTHONIOENCODING", "utf-8");
 
             try {
-                Path pyPath      = Path.of(pythonCmd);
-                Path envRoot     = pyPath.getParent();
-                boolean isWin    = System.getProperty("os.name").toLowerCase().contains("win");
-                Path sitePackages = isWin
+                final Path pyPath      = Path.of(pythonCmd);
+                final Path envRoot     = pyPath.getParent();
+                final boolean isWin    = System.getProperty("os.name").toLowerCase().contains("win");
+                final Path sitePackages = isWin
                         ? envRoot.resolve("Lib/site-packages")
                         : envRoot.resolve("lib/python3.10/site-packages");
                 if (Files.exists(sitePackages)) {
-                    String existing = pb.environment().getOrDefault("PYTHONPATH", "");
-                    String sep      = existing.isEmpty() ? "" : File.pathSeparator;
+                    final String existing = pb.environment().getOrDefault("PYTHONPATH", "");
+                    final String sep      = existing.isEmpty() ? "" : File.pathSeparator;
                     pb.environment().put("PYTHONPATH", sitePackages + sep + existing);
                     log.info("[PyRadiomicsWrapper] PYTHONPATH set to: " + sitePackages);
                 } else {
@@ -132,22 +93,21 @@ public class PyRadiomicsWrapper {
                 log.warn("[PyRadiomicsWrapper] Could not set PYTHONPATH: " + ex.getMessage());
             }
 
-            Process proc = pb.start();
+            final Process proc = pb.start();
 
-            String stdout = readStream(proc.getInputStream());
-            String stderr = readStream(proc.getErrorStream());
+            final String stdout = readStream(proc.getInputStream());
+            final String stderr = readStream(proc.getErrorStream());
 
-            boolean finished = proc.waitFor(TIMEOUT_SECONDS,
-                    java.util.concurrent.TimeUnit.SECONDS);
+            final boolean finished = proc.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (!finished) {
                 proc.destroyForcibly();
-                throw new IOException("PyRadiomics timeout dopo " + TIMEOUT_SECONDS + "s");
+                throw new IOException("PyRadiomics timeout after " + TIMEOUT_SECONDS + "s");
             }
 
             if (proc.exitValue() != 0) {
                 log.warn("[PyRadiomicsWrapper] stderr: " + stderr);
                 throw new IOException(
-                        "PyRadiomics ha restituito exit code " + proc.exitValue() +
+                        "PyRadiomics returns exit code " + proc.exitValue() +
                                 ":\n" + stderr.lines().limit(5)
                                 .reduce("", (a, b) -> a + "\n" + b));
             }
@@ -163,43 +123,36 @@ public class PyRadiomicsWrapper {
         }
     }
 
-    /** Salva la slice come TIFF. */
-    private static void saveSlice(ImagePlus imp, Path path) throws IOException {
+    private static void saveSlice(ImagePlus imp, Path path) {
         ImageProcessor ip = imp.getProcessor().duplicate();
 
         if (imp.getType() == ImagePlus.COLOR_RGB || ip instanceof ColorProcessor) {
             ip = ip.convertToByteProcessor(true);
         }
 
-        ImagePlus copy = new ImagePlus("slice", ip);
+        final ImagePlus copy = new ImagePlus("slice", ip);
         new FileSaver(copy).saveAsTiff(path.toString());
     }
 
-    /** Costruisce la maschera binaria e la salva come TIFF (0/1 pixel). */
-    private static void saveMask(int w, int h, Roi roi, Path path) throws IOException {
-        ByteProcessor bp = new ByteProcessor(w, h);
+    private static void saveMask(int w, int h, Roi roi, Path path) {
+        final ByteProcessor bp = new ByteProcessor(w, h);
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
                 bp.set(x, y, roi.contains(x, y) ? 1 : 0);
-        ImagePlus mask = new ImagePlus("mask", bp);
+        final ImagePlus mask = new ImagePlus("mask", bp);
         new FileSaver(mask).saveAsTiff(path.toString());
     }
 
-    /**
-     * Scrive il file params.yaml per PyRadiomics.
-     * Abilita solo le famiglie di feature selezionate dall'utente.
-     * force2D è sempre true per il wound healing assay.
-     */
     private static void writeParamsYaml(Set<IbsiFeatureSet> featureSets,
                                         Path path) throws IOException {
-        StringBuilder sb = new StringBuilder();
+        final StringBuilder sb = new StringBuilder();
         sb.append("# PyRadiomics params - generato da ScratchRadiomics\n");
         sb.append("setting:\n");
         sb.append("  force2D: true\n");
         sb.append("  force2Ddimension: 0\n");
         sb.append("  binCount: 64\n");
         sb.append("  label: 1\n");
-        sb.append("  resampledPixelSpacing:\n");   // null = no resampling
+        sb.append("  resampledPixelSpacing:\n");
         sb.append("  interpolator: sitkBSpline\n");
         sb.append("  preCrop: true\n\n");
 
@@ -222,23 +175,17 @@ public class PyRadiomicsWrapper {
         Files.writeString(path, sb.toString());
     }
 
-    /**
-     * Assicura che lo script pyradiomics_runner.py sia disponibile su disco.
-     * Cerca prima nella stessa cartella del JAR del plugin, poi lo estrae
-     * dalle risorse embedded nel JAR.
-     */
     private void ensureRunnerScript(Path tmpDir) throws IOException {
-        Path jarDir = getJarDirectory();
+        final Path jarDir = getJarDirectory();
         if (jarDir != null) {
-            Path candidate = jarDir.resolve("pyradiomics_runner.py");
+            final Path candidate = jarDir.resolve("pyradiomics_runner.py");
             if (Files.exists(candidate)) {
                 runnerPath = candidate;
-                log.info("[PyRadiomicsWrapper] Script trovato nella cartella del JAR: " + runnerPath);
                 return;
             }
         }
 
-        String[] resourcePaths = {
+        final String[] resourcePaths = {
                 "/com/ds4h/scratchradiomics/pyradiomics_runner.py",
                 "/com/ds4h/scratchradiomics/radiomics/pyradiomics_runner.py",
                 "/pyradiomics_runner.py"
@@ -257,19 +204,17 @@ public class PyRadiomicsWrapper {
 
         if (is == null) {
             throw new IOException(
-                    "pyradiomics_runner.py non trovato nelle risorse del JAR.\n" +
-                            "Verifica che il file sia presente in src/main/resources."
+                    "pyradiomics_runner.py not found in JAR resources.\n" +
+                            "Check if the file exists in src/main/resources."
             );
         }
 
-        try (InputStream stream = is) {
+        try (final InputStream stream = is) {
             runnerPath = tmpDir.resolve("pyradiomics_runner.py");
             Files.copy(stream, runnerPath, StandardCopyOption.REPLACE_EXISTING);
-            log.info("[PyRadiomicsWrapper] Script estratto dal JAR (" + loadedPath + ") in: " + runnerPath);
         }
     }
 
-    /** Restituisce la directory contenente il JAR del plugin. */
     private Path getJarDirectory() {
         try {
             return Path.of(
@@ -283,21 +228,12 @@ public class PyRadiomicsWrapper {
         }
     }
 
-    /**
-     * Parsa il JSON prodotto da pyradiomics_runner.py.
-     *
-     * Il formato è piatto:
-     *   { "firstorder_Energy": 1234.5, "glcm_Contrast": 0.87, ... }
-     *
-     * Non usiamo librerie JSON esterne per non aggiungere dipendenze —
-     * il formato è abbastanza semplice da parsare con una regex.
-     */
     private static void parseJson(String json, RadiomicResult result) {
         json = json.trim();
         if (json.startsWith("{")) json = json.substring(1);
         if (json.endsWith("}"))   json = json.substring(0, json.length() - 1);
 
-        java.util.regex.Matcher m = java.util.regex.Pattern
+        final Matcher m = Pattern
                 .compile("\"([^\"]+)\"\\s*:\\s*(-?[0-9]+\\.?[0-9]*(?:[eE][+-]?[0-9]+)?)")
                 .matcher(json);
 

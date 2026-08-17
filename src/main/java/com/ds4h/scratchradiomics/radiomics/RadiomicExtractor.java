@@ -3,25 +3,25 @@ package com.ds4h.scratchradiomics.radiomics;
 import ij.ImagePlus;
 import ij.gui.Roi;
 import org.scijava.log.LogService;
-import com.ds4h.scratchradiomics.radiomics.PyRadiomicsWrapper.PyRadiomicsUnavailableException;
 
 import java.util.*;
 
 /**
- * Orchestratore dell'estrazione radiomica IBSI-compliant via PyRadiomics.
+ * Orchestrates IBSI-compliant radiomics extraction via PyRadiomics.<br>
  *
- * Pipeline per ogni (frame, ROI):
- *   1. PythonEnvironmentManager garantisce che il venv con PyRadiomics sia pronto.
- *   2. SHAPE_2D è calcolata da MorphologyFeatures (Java) — PyRadiomics la gestisce
- *      solo in 3D e i descrittori 2D del wound healing sono più accurati nativamente.
- *   3. Tutte le altre famiglie (FIRST_ORDER, GLCM, GLRLM, GLSZM, GLDZM, NGTDM,
- *      NGLDM) sono delegate a PyRadiomicsWrapper che lancia lo script Python.
- *   4. TEMPORAL è calcolata da TemporalFeatures (Java) sui risultati aggregati
- *      di tutti i frame — non ha senso delegarla a PyRadiomics che lavora
- *      su singole immagini.
+ * Pipeline for each (frame, ROI):<br>
+ *   1. PythonEnvironmentManager ensures that the venv with PyRadiomics is ready.<br>
+ *   2. SHAPE_2D is computed by MorphologyFeatures (Java) - PyRadiomics handles
+ *      only 3D shape features, and the 2D descriptors used for wound healing
+ *      are more accurately computed natively.<br>
+ *   3. All other feature families (FIRST_ORDER, GLCM, GLRLM, GLSZM, GLDZM, NGTDM,
+ *      NGLDM) are delegated to PyRadiomicsWrapper, which runs the Python script.<br>
+ *   4. TEMPORAL is computed by TemporalFeatures (Java) from the aggregated
+ *      results of all frames - it does not make sense to delegate it to
+ *      PyRadiomics, which operates on individual images.<br>
  *
- * Se PyRadiomics non è disponibile (setup fallito), viene lanciata un'eccezione
- * che IbsiMeasureDialog mostra all'utente — nessun fallback silenzioso.
+ * If PyRadiomics is unavailable (setup failed), an exception is thrown
+ * and displayed to the user by IbsiMeasureDialog - no silent fallback.
  */
 public class RadiomicExtractor {
 
@@ -40,12 +40,12 @@ public class RadiomicExtractor {
     }
 
     private void initResults() {
-        int totalFrames = Math.max(imp.getNFrames(), imp.getStackSize());
+        final int totalFrames = Math.max(imp.getNFrames(), imp.getStackSize());
 
         for (int f = 1; f <= totalFrames; f++) {
-            Roi roi = findRoiForFrame(f);
+            final Roi roi = findRoiForFrame(f);
             if (roi != null) {
-                String label = (roi.getName() != null && !roi.getName().isEmpty())
+                final String label = (roi.getName() != null && !roi.getName().isEmpty())
                         ? roi.getName() : "ROI_f" + f;
                 results.add(new RadiomicResult(f, label));
             }
@@ -53,10 +53,10 @@ public class RadiomicExtractor {
     }
 
     private Roi findRoiForFrame(int frame) {
-        for (Roi roi : rois) {
-            int pos  = roi.getPosition();
-            int tPos = roi.getTPosition();
-            int zPos = roi.getZPosition();
+        for (final Roi roi : rois) {
+            final int pos  = roi.getPosition();
+            final int tPos = roi.getTPosition();
+            final int zPos = roi.getZPosition();
             if (pos == frame || tPos == frame || zPos == frame) {
                 return roi;
             }
@@ -69,16 +69,22 @@ public class RadiomicExtractor {
         return null;
     }
 
+    /**
+     * Computes the radiomics.
+     *
+     * @param featureSets The radiomics required by the user.
+     * @throws Exception
+     */
     public void compute(Set<IbsiFeatureSet> featureSets) throws Exception {
         ensurePythonReady();
 
-        int totalFrames = Math.max(imp.getNFrames(), imp.getStackSize());
-        boolean needShapeForTemporal = featureSets.contains(IbsiFeatureSet.TEMPORAL);
+        final int totalFrames = Math.max(imp.getNFrames(), imp.getStackSize());
+        final boolean needShapeForTemporal = featureSets.contains(IbsiFeatureSet.TEMPORAL);
 
-        PyRadiomicsWrapper wrapper = new PyRadiomicsWrapper(log);
+        final PyRadiomicsWrapper wrapper = new PyRadiomicsWrapper(log);
 
-        for (RadiomicResult res : results) {
-            Roi roi = findRoiForFrame(res.frameIndex);
+        for (final RadiomicResult res : results) {
+            final Roi roi = findRoiForFrame(res.frameIndex);
             if (roi == null) {
                 log.warn("[RadiomicExtractor] No ROI found for frame " +
                         res.frameIndex + " - skip.");
@@ -91,19 +97,19 @@ public class RadiomicExtractor {
                 imp.setSlice(res.frameIndex);
             }
 
-            ImagePlus sliceImp = new ImagePlus(
+            final ImagePlus sliceImp = new ImagePlus(
                     "slice_f" + res.frameIndex,
                     imp.getProcessor().duplicate());
             sliceImp.setCalibration(imp.getCalibration());
 
             if (featureSets.contains(IbsiFeatureSet.SHAPE_2D) || needShapeForTemporal) {
-                log.debug("[RadiomicExtractor] Shape 2D — frame " + res.frameIndex);
+                log.debug("[RadiomicExtractor] Shape 2D - frame " + res.frameIndex);
                 MorphologyFeatures.compute(sliceImp, roi, res);
             }
 
-            Set<IbsiFeatureSet> pyRadSets = withoutShapeAndTemporal(featureSets);
+            final Set<IbsiFeatureSet> pyRadSets = withoutShapeAndTemporal(featureSets);
             if (!pyRadSets.isEmpty()) {
-                log.debug("[RadiomicExtractor] PyRadiomics — frame " + res.frameIndex);
+                log.debug("[RadiomicExtractor] PyRadiomics - frame " + res.frameIndex);
                 wrapper.extract(pythonCmd, sliceImp, roi, pyRadSets, res);
             }
         }
@@ -114,19 +120,19 @@ public class RadiomicExtractor {
         }
     }
 
-    public List<RadiomicResult> getResults() { return results; }
+    public List<RadiomicResult> getResults() { return new ArrayList<>(results); }
 
     private void ensurePythonReady() throws Exception {
         if (pythonCmd != null) return;
 
-        PythonEnvironmentManager envMgr = new PythonEnvironmentManager(log);
+        final PythonEnvironmentManager envMgr = new PythonEnvironmentManager(log);
         pythonCmd = envMgr.ensureReady();
 
-        log.info("[RadiomicExtractor] Python pronto: " + pythonCmd);
+        log.info("[RadiomicExtractor] Python ready: " + pythonCmd);
     }
 
     private static Set<IbsiFeatureSet> withoutShapeAndTemporal(Set<IbsiFeatureSet> in) {
-        Set<IbsiFeatureSet> out = new LinkedHashSet<>(in);
+        final Set<IbsiFeatureSet> out = new LinkedHashSet<>(in);
         out.remove(IbsiFeatureSet.SHAPE_2D);
         out.remove(IbsiFeatureSet.TEMPORAL);
         return out;

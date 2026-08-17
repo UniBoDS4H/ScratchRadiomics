@@ -13,17 +13,20 @@ public class Preprocessor {
     public void normalize() {
         for (int f = 1; f <= imp.getNFrames(); f++) {
             imp.setPosition(1, 1, f);
-            ImageProcessor ip = imp.getProcessor();
+            final ImageProcessor ip = imp.getProcessor();
             ip.resetMinAndMax();
-            double min = ip.getMin(), max = ip.getMax();
-            if (max > min) { ip.subtract(min); ip.multiply(1.0 / (max - min)); }
+            final double min = ip.getMin(), max = ip.getMax();
+            if (max > min) {
+                ip.subtract(min);
+                ip.multiply(1.0 / (max - min));
+            }
         }
         imp.updateAndDraw();
     }
 
     /** Rolling-ball background subtraction. */
     public void subtractBackground(int radius) {
-        String opts = "rolling=" + radius + (imp.getNFrames() > 1 ? " stack" : "");
+        final String opts = "rolling=" + radius + (imp.getNFrames() > 1 ? " stack" : "");
         for (int f = 1; f <= imp.getNFrames(); f++) {
             imp.setPosition(1, 1, f);
             IJ.run(imp, "Subtract Background...", opts);

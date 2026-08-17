@@ -21,7 +21,6 @@ import java.util.List;
  * Integrates SAMJ (segment-anything-models-java) for automatic scratch segmentation.
  */
 public class SamSegmenter {
-
     private final ImagePlus  imp;
     private final LogService log;
     private String selectedModel = "SAM2 Tiny";
@@ -30,16 +29,25 @@ public class SamSegmenter {
         this.imp = imp; this.log = log;
     }
 
+    /**
+     * Segment the wound area automatically.
+     *
+     * @param nPromptPoints Number of prompt points
+     * @return The ROI of the wound area
+     * @throws Exception
+     */
     public Roi[] segment(int nPromptPoints) throws Exception {
-        int nFrames = Math.max(imp.getNFrames(), imp.getStackSize());
+        final int nFrames = Math.max(imp.getNFrames(), imp.getStackSize());
         log.info("[SamSegmenter] model=" + selectedModel + " total_frames=" + nFrames);
 
         if (!isSamjAvailable()) {
-            boolean installed = installSamjAutomatically();
-            if (!installed || !isSamjAvailable()) return new Roi[0];
+            final boolean installed = installSamjAutomatically();
+            if (!installed || !isSamjAvailable())
+                return new Roi[0];
         }
 
-        if (!showModelDialog()) return new Roi[0];
+        if (!showModelDialog())
+            return new Roi[0];
 
         final Roi[] result = (nFrames == 1)
                 ? new Roi[]{ segmentFrame(imp, 1, nPromptPoints) }
@@ -49,12 +57,9 @@ public class SamSegmenter {
         return result;
     }
 
-    /**
-     * Aggiunge automaticamente l'update site di SAMJ e scarica i componenti.
-     */
     private boolean installSamjAutomatically() {
         log.info("[SamSegmenter] SAMJ non installato. Avvio ImageJ Updater...");
-        int choice = JOptionPane.showConfirmDialog(
+        final int choice = JOptionPane.showConfirmDialog(
                 null,
                 "<html><b>SAMJ richiede l'installazione dei componenti di base.</b><br>" +
                         "Vuoi aprire l'Updater di Fiji per completare l'installazione automatica?</html>",
@@ -140,7 +145,8 @@ public class SamSegmenter {
 
     private List<int[]> collectAuto(ImagePlus frame, int nPts) {
         final List<int[]> pts = new ArrayList<>();
-        if (nPts <= 0) nPts = 3;
+        if (nPts <= 0)
+            nPts = 3;
         final int w = frame.getWidth(), h = frame.getHeight();
         final int xStart = (int)(w * 0.2), xEnd = (int)(w * 0.8);
         final int step = (xEnd - xStart) / Math.max(1, nPts - 1);
@@ -151,23 +157,28 @@ public class SamSegmenter {
     }
 
     private int snapExtrema(ImagePlus frame, int x, int yCenter, int half) {
-        ImageProcessor ip = frame.getProcessor();
+        final ImageProcessor ip = frame.getProcessor();
         final int yMin = Math.max(0, yCenter - half), yMax = Math.min(frame.getHeight()-1, yCenter + half);
         double colMean = 0;
-        for (int y = yMin; y <= yMax; y++) colMean += ip.getPixelValue(x, y);
+        for (int y = yMin; y <= yMax; y++)
+            colMean += ip.getPixelValue(x, y);
         colMean /= (yMax - yMin + 1);
         final boolean bright = colMean > ip.getStatistics().mean;
-        int bestY = yCenter; double bestVal = bright ? -1e9 : 1e9;
+        int bestY = yCenter;
+        double bestVal = bright ? -1e9 : 1e9;
         for (int y = yMin; y <= yMax; y++) {
             final double v = ip.getPixelValue(x, y);
-            if ((bright && v > bestVal) || (!bright && v < bestVal)) { bestVal = v; bestY = y; }
+            if ((bright && v > bestVal) || (!bright && v < bestVal)) {
+                bestVal = v;
+                bestY = y;
+            }
         }
         return bestY;
     }
 
     private List<?> runInference(RandomAccessibleInterval<?> rai,
                                  List<int[]> pts, List<Rectangle> rects) throws Exception {
-        SAMModel model = resolveModel();
+        final SAMModel model = resolveModel();
 
         if (!model.isInstalled()) {
             log.warn("[SamSegmenter] The Python environment for " + selectedModel + " is not installed.");
@@ -184,14 +195,14 @@ public class SamSegmenter {
         }
 
         try {
-            Class<?> annClass = Class.forName("ai.nets.samj.ij.SAMJ_Annotator");
-            Object annotator = annClass.getDeclaredConstructor().newInstance();
+            final Class<?> annClass = Class.forName("ai.nets.samj.ij.SAMJ_Annotator");
+            final Object annotator = annClass.getDeclaredConstructor().newInstance();
 
-            java.lang.reflect.Method m = findMethod(annClass, "samJReturnContours", 4);
+            final Method m = findMethod(annClass, "samJReturnContours", 4);
             return (List<?>) m.invoke(annotator, model, rai, pts, rects);
 
         } catch (Throwable e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            final Throwable cause = e.getCause() != null ? e.getCause() : e;
             log.error("[SamSegmenter] Error during SAMJ inference (" + cause.getClass().getName() + ")", cause);
 
             if (cause instanceof NullPointerException) {
@@ -201,7 +212,7 @@ public class SamSegmenter {
                 );
             }
 
-            String msg = cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName();
+            final String msg = cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName();
             throw new RuntimeException("SAMJ error: " + msg, cause);
         }
     }
@@ -215,23 +226,24 @@ public class SamSegmenter {
         }
     }
 
-    private java.lang.reflect.Method findMethod(Class<?> cls, String name, int params)
+    private Method findMethod(Class<?> cls, String name, int params)
             throws NoSuchMethodException {
-        for (final java.lang.reflect.Method m : cls.getMethods())
-            if (m.getName().equals(name) && m.getParameterCount() == params) return m;
-        for (final java.lang.reflect.Method m : cls.getDeclaredMethods())
+        for (final Method m : cls.getMethods())
+            if (m.getName().equals(name) && m.getParameterCount() == params)
+                return m;
+        for (final Method m : cls.getDeclaredMethods())
             if (m.getName().equals(name) && m.getParameterCount() == params) {
-                m.setAccessible(true); return m;
+                m.setAccessible(true);
+                return m;
             }
         throw new NoSuchMethodException(name);
     }
 
-    @SuppressWarnings("unchecked")
     private Roi bestMask(List<?> masks, int frameIdx) {
         Roi best = null;
         double lowestMeanIntensity = Double.MAX_VALUE;
 
-        double maxAllowedArea = (imp.getWidth() * imp.getHeight()) * 0.75;
+        final double maxAllowedArea = (imp.getWidth() * imp.getHeight()) * 0.75;
 
         for (final Object mask : masks) {
             if (mask == null) continue;
@@ -239,8 +251,8 @@ public class SamSegmenter {
                 int[] xs = null;
                 int[] ys = null;
 
-                Method mX = findMethodIgnoreCase(mask.getClass(), "getContourX", "getContourXPoints", "getXContours", "getContourXs");
-                Method mY = findMethodIgnoreCase(mask.getClass(), "getContourY", "getContourYPoints", "getYContours", "getContourYs");
+                final Method mX = findMethodIgnoreCase(mask.getClass(), "getContourX", "getContourXPoints", "getXContours", "getContourXs");
+                final Method mY = findMethodIgnoreCase(mask.getClass(), "getContourY", "getContourYPoints", "getYContours", "getContourYs");
 
                 if (mX != null && mY != null) {
                     xs = toIntArray(mX.invoke(mask));
@@ -248,10 +260,10 @@ public class SamSegmenter {
                 }
 
                 if (xs == null || ys == null) {
-                    Method mContour = findMethodIgnoreCase(mask.getClass(), "getContour", "getContours", "getContourAsIntArray", "getSqueezedContour", "getPolygon");
+                    final Method mContour = findMethodIgnoreCase(mask.getClass(), "getContour", "getContours", "getContourAsIntArray", "getSqueezedContour", "getPolygon");
                     if (mContour != null) {
-                        Object contourObj = mContour.invoke(mask);
-                        int[][] coords = parseContourObject(contourObj);
+                        final Object contourObj = mContour.invoke(mask);
+                        final int[][] coords = parseContourObject(contourObj);
                         if (coords != null) {
                             xs = coords[0];
                             ys = coords[1];
@@ -294,8 +306,8 @@ public class SamSegmenter {
     }
 
     private Method findMethodIgnoreCase(Class<?> clazz, String... names) {
-        for (String name : names) {
-            for (Method m : clazz.getMethods()) {
+        for (final String name : names) {
+            for (final Method m : clazz.getMethods()) {
                 if (m.getName().equalsIgnoreCase(name) && m.getParameterCount() == 0) {
                     return m;
                 }
@@ -308,7 +320,7 @@ public class SamSegmenter {
         if (obj == null) return null;
 
         if (obj instanceof Polygon) {
-            Polygon p = (Polygon) obj;
+            final Polygon p = (Polygon) obj;
             int[] x = new int[p.npoints];
             int[] y = new int[p.npoints];
             System.arraycopy(p.xpoints, 0, x, 0, p.npoints);
@@ -317,11 +329,11 @@ public class SamSegmenter {
         }
 
         if (obj instanceof int[][]) {
-            int[][] c = (int[][]) obj;
+            final int[][] c = (int[][]) obj;
             if (c.length == 2) return c;
             if (c.length > 2 && c[0].length == 2) {
-                int[] x = new int[c.length];
-                int[] y = new int[c.length];
+                final int[] x = new int[c.length];
+                final int[] y = new int[c.length];
                 for (int i = 0; i < c.length; i++) {
                     x[i] = c[i][0];
                     y[i] = c[i][1];
@@ -331,13 +343,13 @@ public class SamSegmenter {
         }
 
         if (obj instanceof double[][]) {
-            double[][] c = (double[][]) obj;
+            final double[][] c = (double[][]) obj;
             if (c.length == 2) {
                 return new int[][]{ toIntArray(c[0]), toIntArray(c[1]) };
             }
             if (c.length > 2 && c[0].length == 2) {
-                int[] x = new int[c.length];
-                int[] y = new int[c.length];
+                final int[] x = new int[c.length];
+                final int[] y = new int[c.length];
                 for (int i = 0; i < c.length; i++) {
                     x[i] = (int) Math.round(c[i][0]);
                     y[i] = (int) Math.round(c[i][1]);
@@ -347,14 +359,14 @@ public class SamSegmenter {
         }
 
         if (obj instanceof List) {
-            List<?> list = (List<?>) obj;
+            final List<?> list = (List<?>) obj;
             if (list.isEmpty()) return null;
 
-            int[] x = new int[list.size()];
-            int[] y = new int[list.size()];
+            final int[] x = new int[list.size()];
+            final int[] y = new int[list.size()];
 
             for (int i = 0; i < list.size(); i++) {
-                Object elem = list.get(i);
+                final Object elem = list.get(i);
                 if (elem instanceof int[]) {
                     x[i] = ((int[]) elem)[0];
                     y[i] = ((int[]) elem)[1];
@@ -375,24 +387,25 @@ public class SamSegmenter {
     private int[] toIntArray(Object array) {
         if (array instanceof int[]) return (int[]) array;
         if (array instanceof double[]) {
-            double[] d = (double[]) array;
-            int[] res = new int[d.length];
-            for (int i = 0; i < d.length; i++) res[i] = (int) Math.round(d[i]);
+            final double[] d = (double[]) array;
+            final int[] res = new int[d.length];
+            for (int i = 0; i < d.length; i++)
+                res[i] = (int) Math.round(d[i]);
             return res;
         }
         if (array instanceof float[]) {
-            float[] f = (float[]) array;
-            int[] res = new int[f.length];
-            for (int i = 0; i < f.length; i++) res[i] = Math.round(f[i]);
+            final float[] f = (float[]) array;
+            final int[] res = new int[f.length];
+            for (int i = 0; i < f.length; i++)
+                res[i] = Math.round(f[i]);
             return res;
         }
         if (array instanceof List) {
-            List<?> l = (List<?>) array;
-            int[] res = new int[l.size()];
+            final List<?> l = (List<?>) array;
+            final int[] res = new int[l.size()];
             for (int i = 0; i < l.size(); i++) {
-                if (l.get(i) instanceof Number) {
+                if (l.get(i) instanceof Number)
                     res[i] = ((Number) l.get(i)).intValue();
-                }
             }
             return res;
         }
@@ -400,8 +413,8 @@ public class SamSegmenter {
     }
 
     private void logClassMethods(Object obj) {
-        StringBuilder sb = new StringBuilder("[SamSegmenter] Available methods in ").append(obj.getClass().getName()).append(":\n");
-        for (Method m : obj.getClass().getMethods()) {
+        final StringBuilder sb = new StringBuilder("[SamSegmenter] Available methods in ").append(obj.getClass().getName()).append(":\n");
+        for (final Method m : obj.getClass().getMethods()) {
             if (m.getDeclaringClass() != Object.class) {
                 sb.append("  - ").append(m.getReturnType().getSimpleName()).append(" ").append(m.getName()).append("()\n");
             }
@@ -410,11 +423,11 @@ public class SamSegmenter {
     }
 
     private RandomAccessibleInterval<UnsignedByteType> toRai(ImagePlus frame) {
-        ij.process.ImageProcessor ip = frame.getProcessor();
+        ImageProcessor ip = frame.getProcessor();
         if (frame.getBitDepth() != 8) {
             ip = ip.convertToByteProcessor();
         }
-        ImagePlus flat2d = new ImagePlus("frame_2d", ip);
+        final ImagePlus flat2d = new ImagePlus("frame_2d", ip);
         return ImageJFunctions.wrapByte(flat2d);
     }
 
@@ -426,7 +439,7 @@ public class SamSegmenter {
         rm.setVisible(true);
 
         int added = 0;
-        for (Roi roi : rois) {
+        for (final Roi roi : rois) {
             if (roi != null) {
                 rm.addRoi(roi);
                 added++;
@@ -436,8 +449,12 @@ public class SamSegmenter {
     }
 
     private static boolean isSamjAvailable() {
-        try { Class.forName("ai.nets.samj.ij.SAMJ_Annotator"); return true; }
-        catch (ClassNotFoundException e) { return false; }
+        try {
+            Class.forName("ai.nets.samj.ij.SAMJ_Annotator");
+            return true; }
+        catch (ClassNotFoundException e) {
+            return false;
+        }
     }
 
     private boolean showModelDialog() {

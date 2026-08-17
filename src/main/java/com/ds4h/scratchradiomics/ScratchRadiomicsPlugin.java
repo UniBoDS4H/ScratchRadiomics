@@ -1,6 +1,6 @@
 /*
- * Wound Healing Scratch Assay Plugin for Fiji/ImageJ
- * Copyright (C) 2025 Your Name — GPLv3+
+ * ScratchRadiomics Plugin for Fiji/ImageJ
+ * Copyright (C) 2025 DS4H — GPLv3+
  */
 package com.ds4h.scratchradiomics;
 
@@ -15,6 +15,10 @@ import com.ds4h.scratchradiomics.gui.MainDialog;
 
 import javax.swing.*;
 
+/**
+ *
+ * @author Lorenzo Rigoni
+ */
 @Plugin(type = Command.class,
         menuPath = "Plugins > ScratchRadiomics",
         description = "Wound Healing Scratch Assay analysis with SAM segmentation " +
@@ -38,7 +42,7 @@ public class ScratchRadiomicsPlugin implements Command {
                 return;
             }
 
-            int type = imp.getType();
+            final int type = imp.getType();
             if (type != ImagePlus.GRAY8 && type != ImagePlus.GRAY16 && type != ImagePlus.COLOR_RGB) {
                 ij.IJ.error("ScratchRadiomics",
                         "Unsupported image type: " + imp.getTitle() + "\n" +
@@ -57,29 +61,5 @@ public class ScratchRadiomicsPlugin implements Command {
                     " - " + e.getMessage());
             IJ.handleException(e);
         }
-    }
-
-    /** IDE launcher — pure ImageJ1, no SciJava context needed. */
-    public static void main(String[] args) {
-        new ij.ImageJ();
-        final String imagePath = System.getProperty("user.home") + "/Desktop/test_assay_A549_Serum_0.tif";
-        final ImagePlus imp = IJ.openImage(imagePath);
-
-        if (imp == null) {
-            System.err.println("Error: image not found at path " + imagePath);
-            return;
-        }
-
-        if (imp.getNFrames() == 1 && imp.getNSlices() > 1) {
-            final int totalSlices = imp.getNSlices();
-            imp.setDimensions(1, 1, totalSlices);
-            imp.setOpenAsHyperStack(true);
-        }
-
-        imp.show();
-
-        final ScratchRadiomicsPlugin plugin = new ScratchRadiomicsPlugin();
-        plugin.log = new org.scijava.log.StderrLogService();
-        plugin.run();
     }
 }

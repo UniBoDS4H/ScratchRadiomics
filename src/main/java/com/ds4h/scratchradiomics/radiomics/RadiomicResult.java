@@ -14,9 +14,17 @@ public class RadiomicResult {
         this.roiLabel   = roiLabel;
     }
 
-    public void put(String name, double value) { features.put(name, value); }
-    public double get(String name) { return features.getOrDefault(name, Double.NaN); }
-    public Map<String, Double> getFeatures() { return features; }
+    public void put(String name, double value) {
+        features.put(name, value);
+    }
+
+    public double get(String name) {
+        return features.getOrDefault(name, Double.NaN);
+    }
+
+    public Map<String, Double> getFeatures() {
+        return new LinkedHashMap<>(features);
+    }
 
     @Override
     public String toString() {
