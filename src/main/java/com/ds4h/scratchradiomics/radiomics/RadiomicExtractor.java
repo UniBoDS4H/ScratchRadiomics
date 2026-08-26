@@ -7,18 +7,18 @@ import org.scijava.log.LogService;
 import java.util.*;
 
 /**
- * Orchestrates IBSI-compliant radiomics extraction via PyRadiomics.<br>
+ * Orchestrates IBSI-compliant radiomics extraction via PyRadiomics.<br/>
  *
- * Pipeline for each (frame, ROI):<br>
- *   1. PythonEnvironmentManager ensures that the venv with PyRadiomics is ready.<br>
+ * Pipeline for each (frame, ROI):<br/>
+ *   1. PythonEnvironmentManager ensures that the venv with PyRadiomics is ready.<br/>
  *   2. SHAPE_2D is computed by MorphologyFeatures (Java) - PyRadiomics handles
  *      only 3D shape features, and the 2D descriptors used for wound healing
- *      are more accurately computed natively.<br>
+ *      are more accurately computed natively.<br/>
  *   3. All other feature families (FIRST_ORDER, GLCM, GLRLM, GLSZM, GLDZM, NGTDM,
- *      NGLDM) are delegated to PyRadiomicsWrapper, which runs the Python script.<br>
+ *      NGLDM) are delegated to PyRadiomicsWrapper, which runs the Python script.<br/>
  *   4. TEMPORAL is computed by TemporalFeatures (Java) from the aggregated
  *      results of all frames - it does not make sense to delegate it to
- *      PyRadiomics, which operates on individual images.<br>
+ *      PyRadiomics, which operates on individual images.<br/>
  *
  * If PyRadiomics is unavailable (setup failed), an exception is thrown
  * and displayed to the user by IbsiMeasureDialog - no silent fallback.

@@ -9,26 +9,33 @@ import java.awt.Rectangle;
 import java.awt.geom.PathIterator;
 
 /**
- * Morphological shape features - IBSI chapter 2.
+ * Morphological shape features.<br/>
  *
- * Feature names use IBSI identifiers where defined.
+ * Feature names use IBSI identifiers where defined.<br/><br/>
  *
- *  Fmorph.vol       area (px and calibrated)
- *  Fmorph.peri      perimeter
- *  Fmorph.circ      circularity  = 4π·A / P²
- *  Fmorph.comp      compactness  = P / (2·√(π·A))
- *  Fmorph.spher     sphericity (2D: same as circularity for planar ROI)
- *  Fmorph.asprat    aspect ratio (bounding box W/H)
- *  Fmorph.solid     solidity = A / A_convex
- *  Fmorph.elong     elongation = minor / major axis (via bounding box)
- *  Fmorph.flat      flatness (= elongation for 2D)
- *  Fmorph.feret_max maximum Feret diameter
- *  Fmorph.feret_min minimum Feret diameter
- *  fmorph.tort      edge tortuosity = P / Feret_max
+ *  Fmorph.vol   ->    area (px and calibrated)<br/>
+ *  Fmorph.peri  ->    perimeter<br/>
+ *  Fmorph.circ  ->    circularity  = 4π·A / P²<br/>
+ *  Fmorph.comp   ->   compactness  = P / (2·√(π·A))<br/>
+ *  Fmorph.spher  ->   sphericity (2D: same as circularity for planar ROI)<br/>
+ *  Fmorph.asprat ->   aspect ratio (bounding box W/H)<br/>
+ *  Fmorph.solid  ->   solidity = A / A_convex<br/>
+ *  Fmorph.elong  ->   elongation = minor / major axis (via bounding box)<br/>
+ *  Fmorph.flat   ->   flatness (= elongation for 2D)<br/>
+ *  Fmorph.feret_max -> maximum Feret diameter<br/>
+ *  Fmorph.feret_min -> minimum Feret diameter<br/>
+ *  fmorph.tort   ->   edge tortuosity = P / Feret_max<br/>
  */
 public class MorphologyFeatures {
     private MorphologyFeatures() {}
 
+    /**
+     * Calculates the morphological shape features.
+     *
+     * @param imp The image of the wound.
+     * @param roi The ROI of the wound.
+     * @param r The result to return.
+     */
     public static void compute(ImagePlus imp, Roi roi, RadiomicResult r) {
         final Calibration cal = imp.getCalibration();
         final double pw = cal.pixelWidth, ph = cal.pixelHeight;

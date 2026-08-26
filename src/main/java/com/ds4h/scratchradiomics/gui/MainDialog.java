@@ -17,7 +17,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
 /**
- * Main dialog.
+ * Main dialog of the plugin.
  */
 public class MainDialog extends JFrame {
 

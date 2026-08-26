@@ -7,13 +7,13 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Wound-healing temporal closure features (not in IBSI but wound-healing standard).<br>
+ * Wound-healing temporal closure features (not in IBSI but wound-healing standard).<br/>
  *
- *  Ftemp.rwa         relative wound area  = A_t / A_0 <br>
- *  Ftemp.closure     closure rate         = (A_0 - A_t) / (A_0 * t)<br>
- *  Ftemp.vel         migration velocity   (µm/h or calibrated)<br>
- *  Ftemp.accel       acceleration index   (d²/dt² of closure rate)<br>
- *  Ftemp.half_life   time to 50% closure  (interpolated, added to all frames)<br>
+ *  Ftemp.rwa   ->      relative wound area  = A_t / A_0 <br/>
+ *  Ftemp.closure  ->   closure rate         = (A_0 - A_t) / (A_0 * t)<br/>
+ *  Ftemp.vel    ->     migration velocity   (µm/h or calibrated)<br/>
+ *  Ftemp.accel   ->    acceleration index   (d²/dt² of closure rate)<br/>
+ *  Ftemp.half_life ->  time to 50% closure  (interpolated, added to all frames)<br/>
  */
 public class TemporalFeatures {
     private TemporalFeatures() {}

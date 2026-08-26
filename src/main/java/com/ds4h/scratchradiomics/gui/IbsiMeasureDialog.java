@@ -116,12 +116,12 @@ public class IbsiMeasureDialog extends JFrame {
             desc.setBorder(new EmptyBorder(0, 20, 6, 0));
 
             final JPanel subPanel = buildSubFeatureList(fs);
-            final JButton btnToggle = new JButton("▶ features");
+            final JButton btnToggle = new JButton("▶ Available features");
             btnToggle.setFont(btnToggle.getFont().deriveFont(Font.PLAIN, 10f));
             btnToggle.setMargin(new Insets(0, 4, 0, 4));
             btnToggle.addActionListener(ev -> {
                 subPanel.setVisible(!subPanel.isVisible());
-                btnToggle.setText(subPanel.isVisible() ? "▼ features" : "▶ features");
+                btnToggle.setText(subPanel.isVisible() ? "▼ Available features" : "▶ Available features");
                 pack();
             });
             subPanel.setVisible(false);

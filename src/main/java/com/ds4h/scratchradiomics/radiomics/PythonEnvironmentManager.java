@@ -1,34 +1,30 @@
 package com.ds4h.scratchradiomics.radiomics;
 import com.ds4h.scratchradiomics.gui.SetupDialog;
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.scijava.log.LogService;
 
 import javax.swing.*;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.zip.GZIPInputStream;
 
 /**
  * Manages the isolated Python environment (venv) required by PyRadiomics.
  *
  * On the first plugin startup:<br>
- *   1. Checks whether Python 3 is already installed on the system.<br>
+ *   1. Checks whether Python 3.9 is already installed on the system.<br>
  *   2. If not found, silently downloads and installs Miniconda.<br>
- *   3. Creates an isolated venv in <plugins>/wound_healing_env/.venv<br>
+ *   3. Creates an isolated venv in ScratchRadiomics/scratch_radiomics_env/<br>
  *   4. Installs PyRadiomics in the venv using pip.<br>
- *   5. Saves the venv Python path to a .lock file for subsequent runs.<br>
+ *   5. Saves the venv Python path to a appInfo file for subsequent runs.<br>
  *
  * On subsequent runs:<br>
- *   - Reads the path from the .lock file and verifies that the venv is still valid.<br>
- *   - If valid, skips the entire setup procedure (< 100 ms).<br>
+ *   - Reads the path from the appInfo file and verifies that the venv is still valid.<br>
+ *   - If valid, skips the entire setup procedure.<br>
  *
  * The entire process is displayed in a dialog with a progress bar.<br>
  * No user interaction is required: no prompts, no choices.<br>
@@ -42,7 +38,7 @@ public class PythonEnvironmentManager {
     private static final String CONDA_ENV     = "pyrad_env";
     private static final String APP_INFO_FILE = "appInfo.json";
 
-    private static final String PYTHON_VERSION = "3.10";
+    private static final String PYTHON_VERSION = "3.9";
 
     private static final String MINIFORGE_BASE =
             "https://github.com/conda-forge/miniforge/releases/latest/download/";
@@ -56,7 +52,7 @@ public class PythonEnvironmentManager {
             MINIFORGE_BASE + "Miniforge3-Linux-x86_64.sh";
 
     private static final String[] CONDA_PACKAGES = {
-            "numpy",
+            "numpy<2",
             "SimpleITK",
             "scikit-image",
             "PyWavelets",
@@ -66,6 +62,9 @@ public class PythonEnvironmentManager {
             "pip",
             "setuptools<60",
             "wheel",
+            "vc",
+            "vs2015_runtime",
+            "libpython"
     };
 
     private final LogService log;
@@ -145,44 +144,19 @@ public class PythonEnvironmentManager {
         cb.step("Installing PyRadiomics via pip…", 80);
         installPyRadiomics(cb);
 
-        cb.step("Patching PyRadiomics for pure-Python mode…", 92);
-        final boolean isWin2 = System.getProperty("os.name").toLowerCase().contains("win");
-        final Path envPath2  = condaDir.resolve("envs").resolve(CONDA_ENV);
-        final Path installedInit = (isWin2
-                ? envPath2.resolve("Lib/site-packages/radiomics/__init__.py")
-                : envPath2.resolve("lib/python3.10/site-packages/radiomics/__init__.py"));
-        if (Files.exists(installedInit)) {
-            patchRadiomicsInit(installedInit);
-            log.info("[PythonEnvMgr] Patched installed radiomics/__init__.py at: " + installedInit);
-        } else {
-            log.warn("[PythonEnvMgr] Could not find installed __init__.py at: " + installedInit);
-        }
-
         cb.step("Verifying PyRadiomics…", 94);
         final String pythonPath = getEnvPython();
-        log.info("[PythonEnvMgr] venv python path: " + pythonPath);
-        log.info("[PythonEnvMgr] venv python exists: " + Files.exists(Path.of(pythonPath)));
         verifyPyRadiomics(pythonPath);
-        log.info("[PythonEnvMgr] PyRadiomics verified OK");
 
         setPythonPathResult(pythonPath);
-        log.info("[PythonEnvMgr] pythonPathResult set: " + pythonPath);
 
-        log.info("[PythonEnvMgr] appInfoFile path: " + appInfoFile.toAbsolutePath());
-        log.info("[PythonEnvMgr] appInfoFile parent exists: " +
-                Files.exists(appInfoFile.getParent()));
         try {
             Files.createDirectories(appInfoFile.getParent());
             writeAppInfo(pythonPath);
-            log.info("[PythonEnvMgr] appInfo.json written successfully");
-            log.info("[PythonEnvMgr] appInfo.json exists after write: " +
-                    Files.exists(appInfoFile));
         } catch (Exception e) {
-            log.warn("[PythonEnvMgr] writeAppInfo failed: " + e.getClass().getName() +
-                    ": " + e.getMessage());
+            log.warn("[PythonEnvMgr] writeAppInfo failed: " + e.getMessage());
         }
 
-        log.info("[PythonEnvMgr] Setup complete. Python: " + pythonPath);
         cb.step("Ready!", 100);
     }
 
@@ -272,147 +246,21 @@ public class PythonEnvironmentManager {
     }
 
     private void installPyRadiomics(ProgressCallback cb) throws Exception {
-        final Path envPath  = condaDir.resolve("envs").resolve(CONDA_ENV);
         final boolean isWin = System.getProperty("os.name").toLowerCase().contains("win");
 
-        final String python = (isWin
-                ? envPath.resolve("python.exe")
-                : envPath.resolve("bin/python3")).toString();
+        final String condaExe = isWin
+                ? condaDir.resolve("condabin").resolve("conda.bat").toString()
+                : condaDir.resolve("bin").resolve("conda").toString();
 
-        cb.step("Downloading PyRadiomics source…", 81);
-        final Path tarPath = envDir.resolve("pyradiomics-3.0.1.tar.gz");
-        final Path srcDir  = envDir.resolve("pyradiomics-3.0.1-src");
+        cb.step("Installing PyRadiomics binary via Radiomics channel…", 85);
 
-        if (Files.exists(srcDir)) {
-            log.info("[PythonEnvMgr] Removing existing source dir for clean re-extract");
-            deleteDir(srcDir);
-        }
-
-        final String tarUrl = "https://files.pythonhosted.org/packages/source/p/pyradiomics/pyradiomics-3.0.1.tar.gz";
-        downloadWithProgress(tarUrl, tarPath, cb, 81, 85);
-
-        cb.step("Extracting PyRadiomics…", 86);
-        extractTarGz(tarPath, srcDir);
-
-        final Path extractedRoot = Files.list(srcDir).findFirst()
-                .orElseThrow(() -> new IOException("Extraction failed: empty tar source"));
-
-        cb.step("Installing PyRadiomics (pure python mode)…", 88);
-
-        final Path buildDir = extractedRoot.resolve("build");
-        if (Files.exists(buildDir)) {
-            deleteDir(buildDir);
-            log.info("[PythonEnvMgr] Deleted residual build directory");
-        }
-
-        final Path setupCfg = extractedRoot.resolve("setup.cfg");
-        if (Files.exists(setupCfg)) {
-            final String[] lines = Files.readString(setupCfg).split("\n");
-            final StringBuilder cfgOut = new StringBuilder();
-            boolean inBuildExt = false;
-            for (final String line : lines) {
-                final String trimmed = line.trim();
-                if (trimmed.equals("[build_ext]")) {
-                    inBuildExt = true;
-                    continue;
-                }
-                if (inBuildExt && trimmed.startsWith("[")) {
-                    inBuildExt = false;
-                }
-                if (!inBuildExt) {
-                    cfgOut.append(line).append("\n");
-                }
-            }
-            Files.writeString(setupCfg, cfgOut.toString());
-            log.info("[PythonEnvMgr] setup.cfg patched to remove [build_ext] section");
-        }
-
-        final Path setupPy = extractedRoot.resolve("setup.py");
-        if (Files.exists(setupPy)) {
-            final String minimalSetup =
-                    "import versioneer\n" +
-                            "from setuptools import setup, find_packages\n" +
-                            "\n" +
-                            "setup(\n" +
-                            "    name='pyradiomics',\n" +
-                            "    version=versioneer.get_version(),\n" +
-                            "    cmdclass=versioneer.get_cmdclass(),\n" +
-                            "    packages=find_packages(exclude=['tests']),\n" +
-                            "    package_data={'radiomics': ['schemas/*']},\n" +
-                            "    install_requires=[\n" +
-                            "        'numpy>=1.9.2',\n" +
-                            "        'SimpleITK>=0.9.1',\n" +
-                            "        'PyWavelets>=0.4.0',\n" +
-                            "        'pykwalify>=1.6.0',\n" +
-                            "        'six>=1.10.0',\n" +
-                            "    ],\n" +
-                            ")\n";
-            Files.writeString(setupPy, minimalSetup);
-            log.info("[PythonEnvMgr] setup.py replaced with minimal pure-Python version");
-        }
-
-        for (final String cFile : new String[]{"radiomics/_cmatrices.c", "radiomics/_cmatrices.h"}) {
-            final Path p = extractedRoot.resolve(cFile);
-            if (Files.exists(p)) { Files.delete(p); log.info("[PythonEnvMgr] Deleted: " + cFile); }
-        }
-
-        final Path initPy = extractedRoot.resolve("radiomics/__init__.py");
-        if (Files.exists(initPy)) {
-            patchRadiomicsInit(initPy);
-            log.info("[PythonEnvMgr] radiomics/__init__.py patched in source");
-        }
-
-        final ProcessBuilder pb = new ProcessBuilder(
-                python, "setup.py",
-                "install",
-                "--single-version-externally-managed",
-                "--root=/"
+        final List<String> cmd = List.of(
+                condaExe, "install", "-n", CONDA_ENV,
+                "-c", "radiomics", "-c", "conda-forge",
+                "pyradiomics", "-y"
         );
-        pb.directory(extractedRoot.toFile());
-        pb.environment().put("DISABLE_CEXT", "1");
-        pb.environment().put("PYTHONDONTWRITEBYTECODE", "1");
-        pb.redirectErrorStream(false);
 
-        final Process proc = pb.start();
-        final StringBuilder stdout = new StringBuilder();
-        final StringBuilder stderr = new StringBuilder();
-        final Thread tOut = new Thread(() -> {
-            try { stdout.append(new String(proc.getInputStream().readAllBytes())); }
-            catch (IOException ignored) {}
-        });
-        final Thread tErr = new Thread(() -> {
-            try { stderr.append(new String(proc.getErrorStream().readAllBytes())); }
-            catch (IOException ignored) {}
-        });
-        tOut.start(); tErr.start();
-        final int exit = proc.waitFor();
-        tOut.join(); tErr.join();
-
-        final String combined = stdout + stderr.toString();
-        log.info("[PythonEnvMgr] setup.py output:\n" + combined.trim());
-
-        if (exit != 0)
-            throw new IOException("python setup.py install failed (exit " + exit + "):\n" +
-                    combined.lines().limit(30).reduce("", (a, b) -> a + "\n" + b));
-
-        final Path installedSitePackages = isWin
-                ? envPath.resolve("Lib/site-packages/radiomics")
-                : envPath.resolve("lib/python3.10/site-packages/radiomics");
-
-        final Path installedInit = installedSitePackages.resolve("__init__.py");
-        if (Files.exists(installedInit)) {
-            patchRadiomicsInit(installedInit);
-            log.info("[PythonEnvMgr] Applied post-install patch to site-packages: " + installedInit);
-        } else {
-            log.warn("[PythonEnvMgr] Could not find installed __init__.py at: " + installedInit);
-        }
-
-        try {
-            Files.deleteIfExists(tarPath);
-            deleteDir(srcDir);
-        } catch (Exception ignored) {}
-
-        log.info("[PythonEnvMgr] PyRadiomics installato con successo in modalità Python pura.");
+        runCommand(cmd, "conda install pyradiomics");
     }
 
     private String getCondaExe() {
@@ -435,21 +283,23 @@ public class PythonEnvironmentManager {
         try {
             final Process p = new ProcessBuilder(pythonPath, "-c",
                     "import radiomics; print('ok')")
-                    .redirectErrorStream(true).start();
+                    .redirectErrorStream(false).start();
             final String out = new String(p.getInputStream().readAllBytes()).trim();
             p.waitFor();
-            return out.equals("ok") && p.exitValue() == 0;
+            return out.endsWith("ok") && p.exitValue() == 0;
         } catch (Exception e) { return false; }
     }
 
     private void verifyPyRadiomics(String pythonPath) throws Exception {
         final Process p = new ProcessBuilder(pythonPath, "-c",
                 "import radiomics; print(radiomics.__version__)")
-                .redirectErrorStream(true).start();
+                .redirectErrorStream(false).start();
         final String version = new String(p.getInputStream().readAllBytes()).trim();
         p.waitFor();
-        if (p.exitValue() != 0 || version.isEmpty())
-            throw new Exception("PyRadiomics verification failed.\nOutput: " + version);
+        if (p.exitValue() != 0 || version.isEmpty()) {
+            final String err = new String(p.getErrorStream().readAllBytes()).trim();
+            throw new Exception("PyRadiomics verification failed.\nError: " + err);
+        }
         log.info("[PythonEnvMgr] PyRadiomics " + version + " verified.");
     }
 
@@ -546,7 +396,7 @@ public class PythonEnvironmentManager {
                     combined.lines().limit(20).reduce("", (a, b) -> a + "\n" + b));
     }
 
-    private void extractTarGz(Path tarGzFile, Path destDir) throws IOException {
+    /*private void extractTarGz(Path tarGzFile, Path destDir) throws IOException {
         Files.createDirectories(destDir);
         try (final InputStream fi = Files.newInputStream(tarGzFile);
              final BufferedInputStream bi = new BufferedInputStream(fi);
@@ -580,7 +430,7 @@ public class PythonEnvironmentManager {
         } catch (Exception ex) {
             throw new IOException("Failed to extract tar.gz: " + ex.getMessage(), ex);
         }
-    }
+    }*/
 
     private void downloadWithProgress(String urlStr, Path dest,
                                       ProgressCallback cb,
@@ -614,7 +464,7 @@ public class PythonEnvironmentManager {
         }
     }
 
-    private void patchRadiomicsInit(Path initPy) throws IOException {
+    /*private void patchRadiomicsInit(Path initPy) throws IOException {
         if (!Files.exists(initPy)) return;
 
         final String content = Files.readString(initPy, StandardCharsets.UTF_8);
@@ -647,7 +497,7 @@ public class PythonEnvironmentManager {
             deleteDir(pycacheDir);
             log.info("[PythonEnvMgr] Svuotata cache __pycache__ in: " + pycacheDir);
         }
-    }
+    }*/
 
     private Path resolveEnvDir() {
         final String userHome = System.getProperty("user.home");

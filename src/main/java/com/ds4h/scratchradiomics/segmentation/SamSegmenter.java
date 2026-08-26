@@ -58,12 +58,12 @@ public class SamSegmenter {
     }
 
     private boolean installSamjAutomatically() {
-        log.info("[SamSegmenter] SAMJ non installato. Avvio ImageJ Updater...");
+        log.info("[SamSegmenter] SAMJ not installed. Start ImageJ Updater...");
         final int choice = JOptionPane.showConfirmDialog(
                 null,
-                "<html><b>SAMJ richiede l'installazione dei componenti di base.</b><br>" +
-                        "Vuoi aprire l'Updater di Fiji per completare l'installazione automatica?</html>",
-                "Installazione SAMJ",
+                "<html><b>SAMJ requires the installation of the core components.</b><br>" +
+                        "Would you like to open the Fiji Updater to complete the automatic installation?</html>",
+                "SAMJ Installation",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.INFORMATION_MESSAGE
         );
@@ -127,7 +127,8 @@ public class SamSegmenter {
         new WaitForUserDialog("SAM Prompts",
                 "1. Select the Multipoint tool (already active).\n" +
                         "2. Click " + nPts + " points on the scratch area.\n" +
-                        "3. Click OK on this window ONLY AFTER entering the points.").show();
+                        "3. Click OK on this window ONLY AFTER entering the points.\n" +
+                        "Tip: click inside the acellular (bright) scratch band.").show();
 
         final Roi roi = frame.getRoi();
         if (roi instanceof PointRoi) {
@@ -451,7 +452,8 @@ public class SamSegmenter {
     private static boolean isSamjAvailable() {
         try {
             Class.forName("ai.nets.samj.ij.SAMJ_Annotator");
-            return true; }
+            return true;
+        }
         catch (ClassNotFoundException e) {
             return false;
         }
@@ -468,8 +470,8 @@ public class SamSegmenter {
         p.add(new JLabel("<html><b>Choose SAM2 model</b><br><br>" +
                         "1. Select model below.<br>" +
                         "2. Click the scratch area to place prompt points.<br>" +
-                        "3. Press OK - SAM will return a polygon ROI.<br><br>" +
-                        "<i>Tip: click inside the acellular (bright) scratch band.</i></html>"),
+                        "3. Press OK - SAM will return a ROI.<br><br>" +
+                        "</html>"),
                 BorderLayout.NORTH);
         final JComboBox<String> combo = new JComboBox<>(labels);
         p.add(combo, BorderLayout.CENTER);

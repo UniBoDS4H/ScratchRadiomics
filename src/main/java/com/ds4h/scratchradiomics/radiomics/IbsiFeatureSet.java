@@ -7,10 +7,7 @@ package com.ds4h.scratchradiomics.radiomics;
  *   - a human-readable label shown in IbsiMeasureDialog
  *   - the IBSI chapter reference
  *   - a short code prefix used in RadiomicResult keys
- *   - a boolean to decide if the radiomics is calculated by PyRadiomics or by RadiomicsJ
- *
- * Reference: Image Biomarker Standardisation Initiative (IBSI)
- *            https://ibsi.readthedocs.io
+ *   - a boolean to decide if the radiomics is calculated by PyRadiomics or native
  */
 public enum IbsiFeatureSet {
 
