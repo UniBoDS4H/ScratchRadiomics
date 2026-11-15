@@ -117,14 +117,14 @@ public class MainDialog extends JFrame {
         final ButtonGroup bg = new ButtonGroup();
         // Segmentation
         final JRadioButton rbManual = new JRadioButton("Manual ROI  (freehand / polygon)", true);
-        final JRadioButton rbSam = new JRadioButton("Automatic - micro-SAM  (SAM2)", false);
+        final JRadioButton rbSam = new JRadioButton("Automatic - SAMJ", false);
         bg.add(rbManual); bg.add(rbSam);
         c.gridy++; p.add(rbManual, c);
         c.gridy++; p.add(rbSam, c);
 
         // SAM sub-options
         panelSamOptions = new JPanel(new GridBagLayout());
-        panelSamOptions.setBorder(BorderFactory.createTitledBorder("micro-SAM options"));
+        panelSamOptions.setBorder(BorderFactory.createTitledBorder("SAMJ options"));
         final GridBagConstraints cs = gbc(); cs.insets = new Insets(2, 8, 2, 8);
         panelSamOptions.add(new JLabel("Prompt points per frame:"), cs);
         cs.gridy++;
@@ -165,7 +165,7 @@ public class MainDialog extends JFrame {
         final JPanel p = new JPanel(new BorderLayout(6, 4));
 
         btnSegment = new JButton("Run SAM");
-        btnSegment.setToolTipText("Run pre-processing + micro-SAM segmentation");
+        btnSegment.setToolTipText("Run pre-processing + SAMJ segmentation");
         btnSegment.setBackground(new Color(0xE3F2FD));
         btnSegment.addActionListener(e -> runSegmentation());
         btnSegment.setVisible(false);
@@ -226,7 +226,7 @@ public class MainDialog extends JFrame {
                             (int) spnBgRadius.getValue());
                 }
 
-                publish(segMode == MODE_SAM ? "Running micro-SAM…" : "Reading ROIs…");
+                publish(segMode == MODE_SAM ? "Running SAMJ…" : "Reading ROIs…");
                 ij.gui.Roi[] rois;
                 if (segMode == MODE_SAM) {
                     final SamSegmenter sam = new SamSegmenter(imp, log);

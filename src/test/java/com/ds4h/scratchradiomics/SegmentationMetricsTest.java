@@ -69,4 +69,25 @@ public class SegmentationMetricsTest {
 
         assertTrue("MPAD over threshold: " + mpad + "%", mpad < 10.0);
     }
+
+    @Test
+    public void testImageJToolSegmentationAccuracy() throws Exception {
+        String whtPath = "src/test/java/resources/wound_healing_tool_areas.csv";
+        double[] areaWHT = loadCsvValues(whtPath);
+
+        String calculatedPath = "src/test/java/resources/calculated_areas.csv";
+        double[] areaCalculated = loadCsvValues(calculatedPath);
+
+        assertEquals(areaWHT.length, areaCalculated.length);
+
+        double sumPercentageDiff = 0.0;
+        for (int i = 0; i < areaWHT.length; i++) {
+            double absDiff = Math.abs(areaCalculated[i] - areaWHT[i]);
+            sumPercentageDiff += (absDiff / areaWHT[i]) * 100.0;
+        }
+
+        double mpad = sumPercentageDiff / areaWHT.length;
+
+        assertTrue("MPAD over threshold: " + mpad + "%", mpad > 10.0);
+    }
 }

@@ -25,6 +25,9 @@ public class SamSegmenter {
     private final LogService log;
     private String selectedModel = "SAM2 Tiny";
 
+    private static final Color ROI_COLOR = Color.YELLOW;
+    private static final double ROI_STROKE_SCREEN_PX = 3.0;
+
     public SamSegmenter(ImagePlus imp, LogService log) {
         this.imp = imp; this.log = log;
     }
@@ -281,6 +284,9 @@ public class SamSegmenter {
                 final PolygonRoi roi = new PolygonRoi(xs, ys, Math.min(xs.length, ys.length), Roi.POLYGON);
                 roi.setPosition(frameIdx);
 
+                roi.setStrokeColor(ROI_COLOR);
+                roi.setStrokeWidth(2.0);
+
                 double area = roi.getStatistics().area;
 
                 if (area > maxAllowedArea || area < 100) {
@@ -439,12 +445,18 @@ public class SamSegmenter {
         }
         rm.setVisible(true);
 
+        rm.runCommand(imp, "Show All");
+
         int added = 0;
         for (final Roi roi : rois) {
-            if (roi != null) {
-                rm.addRoi(roi);
-                added++;
-            }
+            if (roi == null) continue;
+            final int before = rm.getCount();
+            rm.addRoi(roi);
+            if (rm.getCount() == before) continue;
+            final Roi stored = rm.getRoi(rm.getCount() - 1);
+            stored.setStrokeColor(ROI_COLOR);
+            stored.setUnscalableStrokeWidth(ROI_STROKE_SCREEN_PX);
+            added++;
         }
         log.info("[SamSegmenter] Added " + added + " ROI in ROI Manager");
     }
